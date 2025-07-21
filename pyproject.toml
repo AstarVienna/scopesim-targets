@@ -20,6 +20,12 @@ dependencies = [
 ]
 
 
+[tool.poetry.group.dev.dependencies]
+pylint = "^3.3.7"
+black = "^25.1.0"
+mypy = "^1.17.0"
+
+
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"
 pytest-cov = "^6.1.1"
