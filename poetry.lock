@@ -33,20 +33,20 @@ files = [
 
 [[package]]
 name = "astar-utils"
-version = "0.3.3"
+version = "0.3.4"
 description = "Contains commonly-used utilities for AstarVienna's projects."
 optional = false
-python-versions = "<4.0,>=3.10"
+python-versions = "<3.13,>=3.10"
 groups = ["main"]
 files = [
-    {file = "astar_utils-0.3.3-py3-none-any.whl", hash = "sha256:b1abb5fb9a20b73f796d204b3e054ddcb29c27c26a6d01eb6943abd671a248a8"},
-    {file = "astar_utils-0.3.3.tar.gz", hash = "sha256:14efaf744f13a695498170ceadbf979c8d71c3c06b204c8bbce1db468f3cccc4"},
+    {file = "astar_utils-0.3.4-py3-none-any.whl", hash = "sha256:787c31e714eaf29622233f37314bbac1dba239c99273063d7def0d75baaff145"},
+    {file = "astar_utils-0.3.4.tar.gz", hash = "sha256:7de1e83f572804dd443dfb0e74984a5a4f4c51adb0b5221923fa98c9db07ed16"},
 ]
 
 [package.dependencies]
-colorama = ">=0.4.6,<0.5.0"
-more-itertools = ">=10.1.0,<11.0.0"
-pyyaml = ">=6.0.1,<7.0.0"
+colorama = ">=0.4.6,<1.0"
+more-itertools = ">=10.2.0,<11.0.0"
+pyyaml = ">=6.0.2,<7.0.0"
 
 [[package]]
 name = "astroid"
