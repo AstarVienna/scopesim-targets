@@ -33,14 +33,14 @@ files = [
 
 [[package]]
 name = "astar-utils"
-version = "0.3.4"
+version = "0.4.0"
 description = "Contains commonly-used utilities for AstarVienna's projects."
 optional = false
-python-versions = "<3.13,>=3.10"
+python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "astar_utils-0.3.4-py3-none-any.whl", hash = "sha256:787c31e714eaf29622233f37314bbac1dba239c99273063d7def0d75baaff145"},
-    {file = "astar_utils-0.3.4.tar.gz", hash = "sha256:7de1e83f572804dd443dfb0e74984a5a4f4c51adb0b5221923fa98c9db07ed16"},
+    {file = "astar_utils-0.4.0-py3-none-any.whl", hash = "sha256:81b9614c548f36614709c2c490220e3e76ec9d823dec66ef357e7ffa6735e797"},
+    {file = "astar_utils-0.4.0.tar.gz", hash = "sha256:8effb9fd001f5d0980f7bf9ea3ebd69ef415f949741f78d0afbe0eafa25302c1"},
 ]
 
 [package.dependencies]
