@@ -27,7 +27,7 @@ mypy = "^1.17.1"
 
 
 [tool.poetry.group.test.dependencies]
-pytest = "^8.4.1"
+pytest = "^8.4.2"
 pytest-cov = "^6.1.1"
 
 
