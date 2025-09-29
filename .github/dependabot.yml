@@ -23,7 +23,7 @@ updates:
       time: "11:00"
       timezone: "Europe/Vienna"
     open-pull-requests-limit: 10
-    versioning-strategy: increase  # always bump lower bound
+    # versioning-strategy: increase  # always bump lower bound
     labels:
       - "dependencies"
     allow:
