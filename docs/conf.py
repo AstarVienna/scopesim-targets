@@ -15,6 +15,7 @@ extensions = [
     "myst_nb",
 ]
 
+templates_path = ["_templates"]
 autosummary_generate = True
 autoclass_content = "class"
 autodoc_default_flags = ["members", "inherited-members"]

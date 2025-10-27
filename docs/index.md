@@ -20,5 +20,6 @@ defining_brightness.md
    :recursive:
    :caption: Package Contents
 
-   scopesim_targets
+   scopesim_targets.target
+   scopesim_targets.point_source
 ```
