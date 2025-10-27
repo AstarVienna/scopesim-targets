@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Sphinx configuration."""
 
+project = "ScopeSim-Targets"
+
 extensions = [
     # "sphinx.ext.todo",
     "sphinx.ext.autodoc",
