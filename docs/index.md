@@ -6,8 +6,8 @@ Lorem ipsum.
 ```{toctree}
 :maxdepth: 2
 
-defining_position.md
-defining_spectrum.md
+defining_positions.md
+defining_spectra.md
 defining_brightness.md
 ```
 

@@ -3,8 +3,8 @@
 
 extensions = [
     # "sphinx.ext.todo",
-    # "sphinx.ext.autodoc",
-    # "sphinx.ext.autosummary",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     # "sphinx.ext.intersphinx",
     # "sphinx.ext.inheritance_diagram",
     # "sphinx.ext.mathjax",
