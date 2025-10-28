@@ -1,0 +1,7 @@
+!Star
+position:
+  !Coord
+  ra: 2 deg
+  dec: 1 deg
+spectrum: A0V
+brightness: ["R", 15 mag]
