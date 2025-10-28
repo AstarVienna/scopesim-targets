@@ -9,6 +9,7 @@ Lorem ipsum.
 defining_positions.md
 defining_spectra.md
 defining_brightness.md
+yaml_syntax.md
 ```
 
 ## API reference
