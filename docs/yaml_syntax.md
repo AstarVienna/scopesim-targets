@@ -2,8 +2,10 @@
 
 ## Stellar
 Some examples for stellar objects or groups of such.
-For detailed explanations of the parameters, see [defining positions](defining_positions.md),  [defining spectra](defining_spectra.md) and  [defining brightness](defining_brightness.md) respectively.
+For detailed explanations of the parameters, see [defining positions](defining_positions.md),
+[defining spectra](defining_spectra.md) and  [defining brightness](defining_brightness.md) respectively.
 
+### Single stars
 ```{literalinclude} example_yamls/stellar/star0.yaml
 :name: yaml_stellar_star0
 :caption: Simple single star offset from field center
@@ -15,4 +17,18 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 ```{literalinclude} example_yamls/stellar/star2.yaml
 :name: yaml_stellar_star2
 :caption: Simple single star with full coordinates
+```
+
+### Binaries
+```{literalinclude} example_yamls/stellar/binary0.yaml
+:name: yaml_stellar_binary0
+:caption: Binary with physical separation and distance
+```
+```{literalinclude} example_yamls/stellar/binary1.yaml
+:name: yaml_stellar_binary1
+:caption: Binary with angular separation
+```
+```{literalinclude} example_yamls/stellar/binary2.yaml
+:name: yaml_stellar_binary2
+:caption: Binaries with explicit positions can be defined simply as a star field with just two stars
 ```

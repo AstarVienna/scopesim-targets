@@ -1,0 +1,10 @@
+!Binary
+position:
+  distance: 100 pc
+offset:
+  separation: 0.1 AU
+  position_angle: 50 deg  # explicit angle from x+ axis
+spectra: [F0V, M5V]
+brightness:
+  - ["R", 15 mag]
+  - ["R", 20 mag]

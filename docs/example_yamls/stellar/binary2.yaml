@@ -1,0 +1,12 @@
+!StarField
+positions:
+  - !Coord
+    ra: 2 deg
+    dec: 1 deg
+  - !Coord
+    ra: 2.002 deg
+    dec: 1.01 deg
+spectra: [F0V, M5V]
+brightness:
+  - ["R", 15 mag]
+  - ["R", 20 mag]
