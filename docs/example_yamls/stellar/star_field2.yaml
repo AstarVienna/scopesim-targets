@@ -1,0 +1,23 @@
+!TargetCollection
+position:
+  !Coord
+  ra: 12 deg
+  dec: -3 deg
+  distance: 50 pc
+components:
+  - !Star
+    position: [0, 1]  # [arcsec] offset from center of field
+    spectrum: G2V
+    brightness: ["V", 12 mag]
+  - !Star
+    position: [2, -3]
+    spectrum: A0V
+    brightness: ["R", 15 mag]
+  - !Binary
+    position: [-4, 0]  # primary
+    offset:
+      separation: .5 AU
+    spectra: [F0V, M5V]
+    brightness:
+      - ["R", 15 mag]
+      - ["R", 20 mag]
