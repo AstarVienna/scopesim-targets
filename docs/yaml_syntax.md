@@ -46,3 +46,13 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 :name: yaml_stellar_star_field2
 :caption: Star field including binaries
 ```
+
+## Exoplanetary
+```{literalinclude} example_yamls/exoplanetary/planets0.yaml
+:name: yaml_exoplanetary_planets0
+:caption: Simply system with two exoplanets
+```
+```{literalinclude} example_yamls/exoplanetary/planets1.yaml
+:name: yaml_exoplanetary_planets1
+:caption: P-type system with an exoplanet around a close binary
+```

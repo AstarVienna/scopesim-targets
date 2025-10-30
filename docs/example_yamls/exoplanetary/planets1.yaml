@@ -1,0 +1,19 @@
+!PlanetarySystem
+position:
+  !Coord
+  ra: 2 deg
+  dec: 1 deg
+  distance: 100 pc
+primary:
+  !Binary
+  offset:
+    separation: .1 AU
+  spectra: [G0V, M5V]
+  brightness: ["R", 15 mag]  # Primary
+  contrast: 1e2
+components:
+  - !Exoplanet
+    offset:
+      separation: 3 AU
+      position_angle: 50 deg  # explicit angle from x+ axis
+    contrast: 1e4
