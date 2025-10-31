@@ -1,0 +1,6 @@
+!Star
+position:
+  x: 2 arcmin
+  y: 1 arcmin
+spectrum: A0V
+brightness: ["R", 15 mag]
