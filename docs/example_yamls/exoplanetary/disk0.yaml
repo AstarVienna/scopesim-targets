@@ -1,0 +1,5 @@
+!Disk
+spectrum: "blackbody:2000 K"
+brightness: ["R", 20]
+radius: 0.5 arcsec # inner radius
+width: 0.3 arcsec # width of disk

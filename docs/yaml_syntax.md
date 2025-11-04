@@ -59,6 +59,10 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 :name: yaml_exoplanetary_planets1
 :caption: P-type system with an exoplanet around a close binary
 ```
+```{literalinclude} example_yamls/exoplanetary/disk0.yaml
+:name: yaml_exoplanetary_disk0
+:caption: Disk example
+```
 
 ## Extragalactic
 ```{literalinclude} example_yamls/extragalactic/sersic0.yaml
