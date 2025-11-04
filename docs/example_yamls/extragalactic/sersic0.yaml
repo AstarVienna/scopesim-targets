@@ -1,0 +1,12 @@
+!Sersic
+position:
+  ra: 190.5 deg
+  dec: 11.6 deg
+spectrum: "spex:brown/NGC4621"
+brightness: ["V", 9.6 mag]  # total brightness
+params:
+  r_eff: 46 arcsec  # effective (half-light) radius.
+  n: 5.98  # sersic index
+  ellip: 0.5  # E5
+  theta: 163.3 deg  # position angle
+  c: -0.35  # disky/boxy shape
