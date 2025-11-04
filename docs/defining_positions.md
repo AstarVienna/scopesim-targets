@@ -1,5 +1,6 @@
 # Defining positional information
-Introduction TBA.
+Positional information is handles internally by `astropy.coordinates.SkyCoord`.
+This pages gives a quick overview on how to supply positional information.
 
 ## Possible way to specify positions
 In short:
@@ -12,5 +13,3 @@ The `position` and `offset` arguments are mutually exclusive.
 The exception to this is the `Binary` class, where `position` implicitly applies to the primary and `offset` to the secondary.
 Binaries with explicit positions for both components can be defined as a `StarField`.
 If neither is specified, a (relative) position of `(0, 0)` is assumed as a default.
-
-More TBA.
