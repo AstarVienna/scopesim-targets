@@ -11,3 +11,12 @@ class Target(metaclass=ABCMeta):
     def to_source(self):
         """Convert to ScopeSim Source object."""
         raise NotImplementedError()
+
+    @property
+    def position(self):
+        """Target position (center) as SkyCoord."""
+        return self._position
+
+    @position.setter
+    def position(self, position):
+        self._position = position
