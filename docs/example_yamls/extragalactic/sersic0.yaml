@@ -5,7 +5,7 @@ position:
 spectrum: "spex:brown/NGC4621"
 brightness: ["V", 9.6 mag]  # total brightness
 params:
-  r_eff: 46 arcsec  # effective (half-light) radius.
+  r_eff: 2.9 arcsec  # effective (half-light) radius.
   n: 5.98  # sersic index
   ellip: 0.5  # E5
   theta: 163.3 deg  # position angle
