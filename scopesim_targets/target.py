@@ -2,9 +2,10 @@
 """Contains main ``Target`` class."""
 
 from abc import ABCMeta, abstractmethod
+from collections.abc import Mapping
 
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, Angle
 
 
 class Target(metaclass=ABCMeta):
@@ -32,3 +33,21 @@ class Target(metaclass=ABCMeta):
                 self._position = SkyCoord(x_arcsec, y_arcsec)
             case _:
                 raise TypeError("Unkown postition format.")
+
+    @property
+    def offset(self) -> dict:
+        """Target offset from parent."""
+        return self._offset
+
+    @offset.setter
+    def offset(self, offset: Mapping):
+        if not isinstance(offset, Mapping):
+            raise TypeError("Unkown offset format")
+
+        # TODO: Consider adding warning when self._position is not None, because
+        #       that would take precedence over any offset.
+
+        self._offset = {
+            "separation": offset["separation"],
+            "position_angle": Angle(offset.get("position_angle", 0*u.deg)),
+        }
