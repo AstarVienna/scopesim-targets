@@ -87,3 +87,26 @@ class SpectrumTarget(Target):
                 self._spectrum = SpectralType(spectrum)
             case _:
                 raise TypeError("Unkown spectrum format.")
+
+    def resolve_spectrum(self) -> Spextrum:
+        """
+        Create SpeXtrum instance from `self.spectrum` identifier.
+
+        Can resolve a ``SpectralType`` instance (next-closest available template
+        spectrum) or a string that is a valid entry in the SpeXtrum database.
+
+        .. todo:: Actually implement this "next-closest available template".
+
+        Returns
+        -------
+        Spextrum
+
+        """
+        if isinstance(self.spectrum, str) and self.spectrum.startswith("spex:"):
+            # Explicit SpeXtra identifier
+            return Spextrum(self.spectrum.removeprefix("spex:"))
+
+        # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
+        #       letters, while SpectralType converts to uppercase. This needs a
+        #       proper fix down the road.
+        return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
