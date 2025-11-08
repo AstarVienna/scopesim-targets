@@ -75,9 +75,6 @@ class SpectrumTarget(Target):
             case SourceSpectrum():
                 self._spectrum = spectrum
             case str() | SpectralType():
-                try:
-                    self._spectrum = SpectralType(spectrum)
-                except ValueError as err:
-                    raise TypeError("Unkown spectrum format.") from err
+                self._spectrum = SpectralType(spectrum)
             case _:
                 raise TypeError("Unkown spectrum format.")

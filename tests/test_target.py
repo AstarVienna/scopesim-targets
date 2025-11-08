@@ -83,5 +83,5 @@ class TestSpectrumTarget:
 
     @pytest.mark.parametrize("spectrum", ("bogus", 42))
     def test_spectrum_throws(self, spectrum, spectrum_target_subcls):
-        with pytest.raises(TypeError):
+        with pytest.raises((ValueError, TypeError)):
             spectrum_target_subcls.spectrum = spectrum
