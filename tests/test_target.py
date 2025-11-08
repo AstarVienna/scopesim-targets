@@ -36,6 +36,10 @@ class TestTarget:
         target_subcls.position = position
         assert target_subcls.position == SkyCoord(-5*u.arcsec, 10*u.arcsec)
 
+    def test_position_throws(self, target_subcls):
+        with pytest.raises(TypeError):
+            target_subcls.position = "bogus"
+
     def test_offset(self, target_subcls):
         target_subcls.offset = {
             "separation": 2*u.AU,
@@ -48,3 +52,7 @@ class TestTarget:
         target_subcls.offset = {"separation": 5*u.arcsec}
         assert target_subcls.offset["separation"] == 5*u.arcsec
         assert target_subcls.offset["position_angle"] == Angle(0*u.deg)
+
+    def test_offset_throws(self, target_subcls):
+        with pytest.raises(TypeError):
+            target_subcls.offset = "bogus"
