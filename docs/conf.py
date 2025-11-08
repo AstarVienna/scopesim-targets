@@ -5,7 +5,7 @@
 project = "ScopeSim-Targets"
 
 extensions = [
-    # "sphinx.ext.todo",
+    "sphinx.ext.todo",  # Allows ".. todo::" in docstrings
     "sphinx.ext.autodoc",  # For API documentation from docstrings
     "sphinx.ext.autosummary",  # For API documentation from docstrings
     # "sphinx.ext.intersphinx",
