@@ -87,6 +87,10 @@ class TestSpectrumTarget:
         with pytest.raises((ValueError, TypeError)):
             spectrum_target_subcls.spectrum = spectrum
 
+    def test_spectrum_throws_file(self, spectrum_target_subcls):
+        with pytest.raises(NotImplementedError):
+            spectrum_target_subcls.spectrum = "file:bogus"
+
     # @pytest.mark.webtest
     def test_resolves_spectrum(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G2V"
