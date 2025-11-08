@@ -9,6 +9,10 @@ from astropy.coordinates import SkyCoord, Angle
 from synphot import SourceSpectrum
 
 from astar_utils import SpectralType
+from spextra import Spextrum, SpecLibrary
+
+
+DEFAULT_LIBRARY = SpecLibrary("bosz/lr")
 
 
 class Target(metaclass=ABCMeta):
