@@ -78,6 +78,11 @@ class SpectrumTarget(Target):
         match spectrum:
             case SourceSpectrum():
                 self._spectrum = spectrum
+            case str(spex) if spex.startswith("spex:"):
+                # TODO: Consider adding check at this point if spex exists
+                self._spectrum = spex
+            case str(file) if file.startswith("file:"):
+                raise NotImplementedError("Spectrum from file not yet supported.")
             case str() | SpectralType():
                 self._spectrum = SpectralType(spectrum)
             case _:
