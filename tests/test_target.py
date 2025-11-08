@@ -5,6 +5,7 @@ import pytest
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
+from synphot import SourceSpectrum
 
 from astar_utils import SpectralType
 
@@ -70,11 +71,17 @@ class TestTarget:
 
 
 class TestSpectrumTarget:
-    def test_spectrum(self, spectrum_target_subcls):
+    # @pytest.mark.webtest
+    def test_spectrum_synphot(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = SourceSpectrum.from_vega()
+        assert isinstance(spectrum_target_subcls.spectrum, SourceSpectrum)
+
+    def test_spectrum_str(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G2V"
         assert isinstance(spectrum_target_subcls.spectrum, SpectralType)
         assert spectrum_target_subcls.spectrum == "g2v"
 
-    def test_spectrum_throws(self, spectrum_target_subcls):
+    @pytest.mark.parametrize("spectrum", ("bogus", 42))
+    def test_spectrum_throws(self, spectrum, spectrum_target_subcls):
         with pytest.raises(TypeError):
-            spectrum_target_subcls.spectrum = "bogus"
+            spectrum_target_subcls.spectrum = spectrum
