@@ -8,6 +8,7 @@ from astropy.coordinates import SkyCoord, Angle
 from synphot import SourceSpectrum
 
 from astar_utils import SpectralType
+from spextra.exceptions import NotInLibraryError
 
 from scopesim_targets.target import Target, SpectrumTarget
 
@@ -85,3 +86,21 @@ class TestSpectrumTarget:
     def test_spectrum_throws(self, spectrum, spectrum_target_subcls):
         with pytest.raises((ValueError, TypeError)):
             spectrum_target_subcls.spectrum = spectrum
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G2V"
+        resolved = spectrum_target_subcls.resolve_spectrum()
+        assert isinstance(resolved, SourceSpectrum)
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum_spex(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "spex:kurucz/g2v"
+        resolved = spectrum_target_subcls.resolve_spectrum()
+        assert isinstance(resolved, SourceSpectrum)
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum_throws(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G5V"  # not in current default lib
+        with pytest.raises(NotInLibraryError):
+            spectrum_target_subcls.resolve_spectrum()
