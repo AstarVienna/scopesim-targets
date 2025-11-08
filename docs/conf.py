@@ -5,7 +5,7 @@
 project = "ScopeSim-Targets"
 
 extensions = [
-    # "sphinx.ext.todo",
+    "sphinx.ext.todo",  # Allows ".. todo::" in docstrings
     "sphinx.ext.autodoc",  # For API documentation from docstrings
     "sphinx.ext.autosummary",  # For API documentation from docstrings
     # "sphinx.ext.intersphinx",
@@ -28,6 +28,7 @@ autodoc_default_flags = ["members", "inherited-members"]  # ?
 autodoc_docstring_signature = False  # ?
 napoleon_numpy_docstring = True  # Allow Numpy-style docstrings
 napoleon_use_admonition_for_references = True
+todo_include_todos = True  # Actually process ".. todo::" thingies
 
 source_encoding = "utf-8"
 # Link file types to parsers

@@ -16,7 +16,8 @@ dependencies = [
     "pyyaml (>=6.0.2,<7.0.0)",
 
     "synphot (>=1.6.0,<2.0.0)",
-    "astar-utils (>=0.3.3)"
+    "astar-utils (>=0.3.3)",
+    "spextra (>=0.42.0)",
 ]
 
 

@@ -5,8 +5,12 @@ import pytest
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
+from synphot import SourceSpectrum
 
-from scopesim_targets.target import Target
+from astar_utils import SpectralType
+from spextra.exceptions import NotInLibraryError
+
+from scopesim_targets.target import Target, SpectrumTarget
 
 
 @pytest.fixture(scope="function")
@@ -21,6 +25,15 @@ def target_subcls():
         def to_source(self):
             pass
     return MockTargetSubcls()
+
+
+@pytest.fixture(scope="function")
+def spectrum_target_subcls():
+    """Like ``target_subcls``, but for `SpectrumTarget`."""
+    class MockSpectrumTargetSubcls(SpectrumTarget):
+        def to_source(self):
+            pass
+    return MockSpectrumTargetSubcls()
 
 
 class TestTarget:
@@ -56,3 +69,42 @@ class TestTarget:
     def test_offset_throws(self, target_subcls):
         with pytest.raises(TypeError):
             target_subcls.offset = "bogus"
+
+
+class TestSpectrumTarget:
+    # @pytest.mark.webtest
+    def test_spectrum_synphot(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = SourceSpectrum.from_vega()
+        assert isinstance(spectrum_target_subcls.spectrum, SourceSpectrum)
+
+    def test_spectrum_str(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G2V"
+        assert isinstance(spectrum_target_subcls.spectrum, SpectralType)
+        assert spectrum_target_subcls.spectrum == "g2v"
+
+    @pytest.mark.parametrize("spectrum", ("bogus", 42))
+    def test_spectrum_throws(self, spectrum, spectrum_target_subcls):
+        with pytest.raises((ValueError, TypeError)):
+            spectrum_target_subcls.spectrum = spectrum
+
+    def test_spectrum_throws_file(self, spectrum_target_subcls):
+        with pytest.raises(NotImplementedError):
+            spectrum_target_subcls.spectrum = "file:bogus"
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G2V"
+        resolved = spectrum_target_subcls.resolve_spectrum()
+        assert isinstance(resolved, SourceSpectrum)
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum_spex(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "spex:kurucz/g2v"
+        resolved = spectrum_target_subcls.resolve_spectrum()
+        assert isinstance(resolved, SourceSpectrum)
+
+    # @pytest.mark.webtest
+    def test_resolves_spectrum_throws(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G5V"  # not in current default lib
+        with pytest.raises(NotInLibraryError):
+            spectrum_target_subcls.resolve_spectrum()
