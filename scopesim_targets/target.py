@@ -6,6 +6,9 @@ from collections.abc import Mapping
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
+from synphot import SourceSpectrum
+
+from astar_utils import SpectralType
 
 
 class Target(metaclass=ABCMeta):
@@ -19,6 +22,10 @@ class Target(metaclass=ABCMeta):
     @property
     def position(self):
         """Target position (center) as SkyCoord."""
+        # TODO: Consider adding default (with logging) here if
+        #       self._position is None and self._offset is None
+        #       But consider also how that might interact with parent position
+        #       and offset frame from that.
         return self._position
 
     # TODO: add typing
@@ -51,3 +58,26 @@ class Target(metaclass=ABCMeta):
             "separation": offset["separation"],
             "position_angle": Angle(offset.get("position_angle", 0*u.deg)),
         }
+
+
+class SpectrumTarget(Target):
+    """Base class for Targets with separate spectrum (non-cube)."""
+
+    @property
+    def spectrum(self):
+        """Target spectral information."""
+        return self._spectrum
+
+    # TODO: add typing
+    @spectrum.setter
+    def spectrum(self, spectrum):
+        match spectrum:
+            case SourceSpectrum():
+                self._spectrum = spectrum
+            case str() | SpectralType():
+                try:
+                    self._spectrum = SpectralType(spectrum)
+                except ValueError as err:
+                    raise TypeError("Unkown spectrum format.") from err
+            case _:
+                raise TypeError("Unkown spectrum format.")
