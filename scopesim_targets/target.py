@@ -4,6 +4,7 @@
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from collections.abc import Mapping
+from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
@@ -115,3 +116,21 @@ class SpectrumTarget(Target):
         #       letters, while SpectralType converts to uppercase. This needs a
         #       proper fix down the road.
         return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
+
+    @property
+    def brightness(self):
+        """Target brightness information."""
+        return self._brightness
+
+    # TODO: add typing
+    @brightness.setter
+    def brightness(self, brightness):
+        match brightness:
+            case str(band), u.Quantity() | Number() as mag:
+                # TODO: Consider adding logging about unit assumptions
+                # TODO: Implement support for flux instead of mag
+                if band not in FILTER_SYSTEM:
+                    raise ValueError(f"Band '{band}' unknown.")
+                self._brightness = Brightness(band, mag << u.mag)
+            case _:
+                raise TypeError("Unkown brightness format.")
