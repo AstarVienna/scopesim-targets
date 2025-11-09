@@ -9,9 +9,11 @@ from astropy.coordinates import SkyCoord, Angle
 from synphot import SourceSpectrum
 
 from astar_utils import SpectralType
-from spextra import Spextrum, SpecLibrary
+from spextra import Spextrum, SpecLibrary, FilterSystem
 
 
+# For now, limit possible bands to ETC filters in SpeXtra
+FILTER_SYSTEM = FilterSystem("etc")
 DEFAULT_LIBRARY = SpecLibrary("bosz/lr")
 
 
