@@ -130,3 +130,10 @@ class TestSpectrumTarget:
     def test_brightness_throws_filter(self, spectrum_target_subcls):
         with pytest.raises(ValueError):
             spectrum_target_subcls.brightness = ["bogus", 10]
+
+    def test_spectrum_scaling(self, spectrum_target_subcls):
+        spectrum_target_subcls.spectrum = "G2V"
+        spectrum_target_subcls.brightness = ("R", 18)
+        scale = spectrum_target_subcls._get_spectrum_scale(
+            spectrum_target_subcls.resolve_spectrum())
+        assert scale == pytest.approx(1.9e-23)  # TODO: CHECK THIS NUMBER!!!
