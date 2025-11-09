@@ -20,6 +20,9 @@ dependencies = [
     "spextra (>=0.42.0)",
 ]
 
+[project.optional-dependencies]
+scopesim = ["scopesim (>=0.11.0,<1.0.0)"]
+
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.8"
