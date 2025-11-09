@@ -2,6 +2,7 @@
 """Contains main ``Target`` class."""
 
 from abc import ABCMeta, abstractmethod
+from collections import namedtuple
 from collections.abc import Mapping
 
 from astropy import units as u
@@ -11,6 +12,8 @@ from synphot import SourceSpectrum
 from astar_utils import SpectralType
 from spextra import Spextrum, SpecLibrary, FilterSystem
 
+
+Brightness = namedtuple("Brightness", ["band", "mag"])
 
 # For now, limit possible bands to ETC filters in SpeXtra
 FILTER_SYSTEM = FilterSystem("etc")
