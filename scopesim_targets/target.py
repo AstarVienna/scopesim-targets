@@ -2,16 +2,23 @@
 """Contains main ``Target`` class."""
 
 from abc import ABCMeta, abstractmethod
+from collections import namedtuple
 from collections.abc import Mapping
+from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
-from synphot import SourceSpectrum
+from synphot import SourceSpectrum, Observation
+from synphot.units import PHOTLAM
 
 from astar_utils import SpectralType
-from spextra import Spextrum, SpecLibrary
+from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 
 
+Brightness = namedtuple("Brightness", ["band", "mag"])
+
+# For now, limit possible bands to ETC filters in SpeXtra
+FILTER_SYSTEM = FilterSystem("etc")
 DEFAULT_LIBRARY = SpecLibrary("bosz/lr")
 
 
@@ -110,3 +117,35 @@ class SpectrumTarget(Target):
         #       letters, while SpectralType converts to uppercase. This needs a
         #       proper fix down the road.
         return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
+
+    @property
+    def brightness(self):
+        """Target brightness information."""
+        return self._brightness
+
+    # TODO: add typing
+    @brightness.setter
+    def brightness(self, brightness):
+        match brightness:
+            case str(band), u.Quantity() | Number() as mag:
+                # TODO: Consider adding logging about unit assumptions
+                # TODO: Implement support for flux instead of mag
+                if band not in FILTER_SYSTEM:
+                    raise ValueError(f"Band '{band}' unknown.")
+                self._brightness = Brightness(band, mag << u.mag)
+            case _:
+                raise TypeError("Unkown brightness format.")
+
+    def _get_spectrum_scale(self, spectrum: SourceSpectrum) -> float:
+        filter_name = f"{FILTER_SYSTEM.name}/{self.brightness.band}"
+        band = Passband(filter_name)
+
+        # TODO: Carefully check this implementation!
+        #       Why does Spextrum.flat_spectrum() not need a band?
+        ref_flux = Observation(
+            Spextrum.flat_spectrum(amplitude=self.brightness.mag),
+            band,
+        ).effstim(flux_unit=PHOTLAM)
+        real_flux = Observation(spectrum, band).effstim(flux_unit=PHOTLAM)
+
+        return float(ref_flux / real_flux)
