@@ -87,9 +87,11 @@ class TestSpectrumTarget:
         with pytest.raises((ValueError, TypeError)):
             spectrum_target_subcls.spectrum = spectrum
 
-    def test_spectrum_throws_file(self, spectrum_target_subcls):
-        with pytest.raises(NotImplementedError):
-            spectrum_target_subcls.spectrum = "file:bogus"
+    def test_spectrum_from_file(self, spectrum_target_subcls):
+        # TODO: Add actual test with mock file
+        spectrum_target_subcls.spectrum = "file:bogus"
+        with pytest.raises(FileNotFoundError):
+            spectrum_target_subcls.resolve_spectrum()
 
     # @pytest.mark.webtest
     def test_resolves_spectrum(self, spectrum_target_subcls):
