@@ -89,7 +89,8 @@ class SpectrumTarget(Target):
                 # TODO: Consider adding check at this point if spex exists
                 self._spectrum = spex
             case str(file) if file.startswith("file:"):
-                raise NotImplementedError("Spectrum from file not yet supported.")
+                # TODO: Consider adding check if file exists already here
+                self._spectrum = file
             case str() | SpectralType():
                 self._spectrum = SpectralType(spectrum)
             case _:
@@ -112,6 +113,11 @@ class SpectrumTarget(Target):
         if isinstance(self.spectrum, str) and self.spectrum.startswith("spex:"):
             # Explicit SpeXtra identifier
             return Spextrum(self.spectrum.removeprefix("spex:"))
+
+        if isinstance(self.spectrum, str) and self.spectrum.startswith("file:"):
+            # Explicit SpeXtra identifier
+            # TODO: Use pathlib file URI here
+            return SourceSpectrum.from_file(self.spectrum.removeprefix("file:"))
 
         # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
         #       letters, while SpectralType converts to uppercase. This needs a
