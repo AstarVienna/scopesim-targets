@@ -8,10 +8,11 @@ from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
-from synphot import SourceSpectrum
+from synphot import SourceSpectrum, Observation
+from synphot.units import PHOTLAM
 
 from astar_utils import SpectralType
-from spextra import Spextrum, SpecLibrary, FilterSystem
+from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 
 
 Brightness = namedtuple("Brightness", ["band", "mag"])
@@ -134,3 +135,17 @@ class SpectrumTarget(Target):
                 self._brightness = Brightness(band, mag << u.mag)
             case _:
                 raise TypeError("Unkown brightness format.")
+
+    def _get_spectrum_scale(self, spectrum: SourceSpectrum) -> float:
+        filter_name = f"{FILTER_SYSTEM.name}/{self.brightness.band}"
+        band = Passband(filter_name)
+
+        # TODO: Carefully check this implementation!
+        #       Why does Spextrum.flat_spectrum() not need a band?
+        ref_flux = Observation(
+            Spextrum.flat_spectrum(amplitude=self.brightness.mag),
+            band,
+        ).effstim(flux_unit=PHOTLAM)
+        real_flux = Observation(spectrum, band).effstim(flux_unit=PHOTLAM)
+
+        return float(ref_flux / real_flux)
