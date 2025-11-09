@@ -2,12 +2,25 @@
 """Currently only ``Star`` and baseclass."""
 
 from astropy import units as u
+from astropy.table import Table
+
+from scopesim import Source
+from scopesim.source.source_fields import TableSourceField
 
 from .target import SpectrumTarget
 
 
 class PointSourceTarget(SpectrumTarget):
     """Base class for Point Source Targets."""
+
+    def to_source(self) -> Source:
+        """Convert to ScopeSim Source object."""
+        tbl = Table(names=["x", "y", "ref", "weight"])
+        tbl.add_row(self._to_table_row())
+        source = Source(field=TableSourceField(
+            tbl, spectra={0: self.resolve_spectrum()}
+        ))
+        return source
 
     def _xy_arcsec_position(self, local_frame) -> tuple[float, float]:
         # Transform to local offset for ScopeSim

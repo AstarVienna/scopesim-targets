@@ -13,6 +13,7 @@ from synphot.units import PHOTLAM
 
 from astar_utils import SpectralType
 from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
+from scopesim import Source
 
 
 Brightness = namedtuple("Brightness", ["band", "mag"])
@@ -26,7 +27,7 @@ class Target(metaclass=ABCMeta):
     """Main class in scopesim-targets."""
 
     @abstractmethod
-    def to_source(self):
+    def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
         raise NotImplementedError()
 
