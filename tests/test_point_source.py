@@ -2,6 +2,7 @@
 """Unit tests for point_source.py."""
 
 import pytest
+import yaml
 
 from scopesim_targets.point_source import PointSourceTarget, Star
 
@@ -21,3 +22,13 @@ class TestStar:
         assert src.fields[0].field["x"] == 0
         assert src.fields[0].field["y"] == 0
         assert src.fields[0].field["ref"][0] in src.fields[0].spectra
+
+    # Webtest??
+    def test_loads_yaml(self):
+        tgt = yaml.full_load("""
+            !Star
+            position: [2, 3]
+            spectrum: A0V
+            brightness: ["R", 15 mag]
+        """)
+        assert isinstance(tgt, Star)
