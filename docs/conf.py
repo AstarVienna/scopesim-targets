@@ -50,3 +50,13 @@ html_theme_options = {
     "use_download_button": True,  # allow download of individual pages
     "home_page_in_toc": True,
 }
+
+html_logo = "_static/logo.png"  # link to logo
+# see https://sphinx-book-theme.readthedocs.io/en/stable/sections/sidebar-primary.html
+html_sidebars = {
+    "**": [
+        "navbar-logo.html",
+        "search-field.html",
+        "sbt-sidebar-nav.html",
+    ]
+}
