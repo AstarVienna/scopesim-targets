@@ -8,6 +8,7 @@ from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
+from .yaml_constructors import register_target_constructor
 from .target import SpectrumTarget
 
 
@@ -72,3 +73,6 @@ class PointSourceTarget(SpectrumTarget):
 
 class Star(PointSourceTarget):
     """A single star."""
+
+
+register_target_constructor(Star)

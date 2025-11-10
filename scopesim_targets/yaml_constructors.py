@@ -66,3 +66,10 @@ def register_coord() -> None:
 
     yaml.add_representer(SkyCoord, coord_representer)
     yaml.add_constructor("!Coord", coord_constructor)
+
+
+def register_target_constructor(target_cls) -> None:
+    """Register mapping constructor for `target_cls`."""
+    def target_constructor(loader, node):
+        return target_cls(**loader.construct_mapping(node, deep=True))
+    yaml.add_constructor(f"!{target_cls.__name__}", target_constructor)
