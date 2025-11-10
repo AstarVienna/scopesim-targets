@@ -7,11 +7,25 @@ from astropy.table import Table
 from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
 
+from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import SpectrumTarget
 
 
 class PointSourceTarget(SpectrumTarget):
     """Base class for Point Source Targets."""
+
+    def __init__(
+        self,
+        position: POSITION_TYPE | None = None,
+        spectrum: SPECTRUM_TYPE | None = None,
+        brightness: BRIGHTNESS_TYPE | None = None,
+    ) -> None:
+        if position is not None:
+            self.position = position
+        if spectrum is not None:
+            self.spectrum = spectrum
+        if brightness is not None:
+            self.brightness = brightness
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
@@ -54,3 +68,7 @@ class PointSourceTarget(SpectrumTarget):
             "ref": ref,
         }
         return row
+
+
+class Star(PointSourceTarget):
+    """A single star."""
