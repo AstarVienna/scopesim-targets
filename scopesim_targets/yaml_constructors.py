@@ -22,18 +22,16 @@ from astropy.coordinates import SkyCoord
 
 def register_qty() -> None:
     """Register representer, constructor and implicit resolver for Quantity."""
-    # FIXME: This now matches e.g. 5e5 or 3.1e2 as a (dimensionless) Quantity,
-    #        which is not the end of the world, but undesirable.
     # Regex for implicit resolver
     quantity_pattern = re.compile(
         r"""^                    # start of string
             \s*                  # optional leading whitespace
             [-+]?                # optional leading sign
-            \d+(\.\d*)?|\.\d+    # number (int or float)
+            (\d+(\.\d*)?|\.\d+)  # number (int or float)
             (e[-+]\d+)?          # optional exponent with mandatory +/-
             \s                   # exactly one space between number and unit
             ([a-zA-Z]+(-?\d+)?   # first unit, possibly with negative exponent
-            (\s[a-zA-Z]+(-?\d+)?)*)
+            (\s[a-zA-Z]+(-?\d+)?)*)  # optional additional units
             \s*                  # optional trailing whitespace
         $""",
         re.VERBOSE,
