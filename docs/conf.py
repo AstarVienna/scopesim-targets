@@ -16,6 +16,7 @@ extensions = [
     "sphinx.ext.napoleon",  # For Numpy-style docstrings (better than numpydoc)
     "sphinx_copybutton",  # Adds "copy" buttons (duh) to code cells
     "myst_nb",  # For markdown parsing and MyST Notebooks
+    "sphinx_issues",  # For linking GitHub issues in RTD
 ]
 
 # Link to templates for API documentation of modules, classes etc.
@@ -29,6 +30,9 @@ autodoc_docstring_signature = False  # ?
 napoleon_numpy_docstring = True  # Allow Numpy-style docstrings
 napoleon_use_admonition_for_references = True
 todo_include_todos = True  # Actually process ".. todo::" thingies
+
+# Link to repo for "sphinx_issues" extension
+issues_github_path = "AstarVienna/scopesim-targets"
 
 source_encoding = "utf-8"
 # Link file types to parsers
