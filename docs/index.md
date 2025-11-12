@@ -1,3 +1,9 @@
+---
+file_format: mystnb
+kernelspec:
+  name: python3
+---
+
 ```{image} _static/logo.png
 :align: center
 :alt: ScopeSim-Targets logo
@@ -18,7 +24,7 @@ pip install scopesim-targets
 ### Basic usage
 In the most basic example, we will set up a simple point source and observe it with `ScopeSim` using METIS imaging mode:
 
-```{code-cell} python
+```{code-cell} ipython3
 from scopesim import Simulation
 from scopesim_targets.point_source import Star
 
