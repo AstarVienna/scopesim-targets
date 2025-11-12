@@ -1,4 +1,7 @@
 # YAML syntax for Targets
+ScopeSim-Targets is built from the groud up to define targets in YAML files.
+Instantiation from YAML is identical to creating the object in Python directly.
+This pages lists a few examples of the syntax used to define targets in YAML.
 
 ## Stellar
 Some examples for stellar objects or groups of such.
