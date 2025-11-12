@@ -104,7 +104,8 @@ class SpectrumTarget(Target):
         Can resolve a ``SpectralType`` instance (next-closest available template
         spectrum) or a string that is a valid entry in the SpeXtrum database.
 
-        .. todo:: Actually implement this "next-closest available template".
+        .. todo:: Actually implement this "next-closest available template", see
+            :issue:`68`.
 
         Returns
         -------
