@@ -25,6 +25,8 @@ pip install scopesim-targets
 In the most basic example, we will set up a simple point source and observe it with `ScopeSim` using METIS imaging mode:
 
 ```{code-cell} ipython3
+:tags: [hide-output]
+
 from scopesim import Simulation
 from scopesim_targets.point_source import Star
 
@@ -36,6 +38,9 @@ target = Star(
 
 simulation = Simulation("MICADO")
 simulation(target.to_source())
+```
+
+```{code-cell} ipython3
 img_slice = slice(462, 562)  # only show center of image
 simulation.plot(img_slice=(img_slice, img_slice))
 ```
