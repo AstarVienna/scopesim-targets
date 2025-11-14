@@ -15,6 +15,8 @@ from astar_utils import SpectralType
 from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 from scopesim import Source
 
+from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
+
 
 Brightness = namedtuple("Brightness", ["band", "mag"])
 
@@ -32,7 +34,7 @@ class Target(metaclass=ABCMeta):
         raise NotImplementedError()
 
     @property
-    def position(self):
+    def position(self) -> SkyCoord:
         """Target position (center) as SkyCoord."""
         # TODO: Consider adding default (with logging) here if
         #       self._position is None and self._offset is None
@@ -40,9 +42,8 @@ class Target(metaclass=ABCMeta):
         #       and offset frame from that.
         return self._position
 
-    # TODO: add typing
     @position.setter
-    def position(self, position):
+    def position(self, position: POSITION_TYPE):
         match position:
             case SkyCoord():
                 self._position = position
@@ -59,7 +60,7 @@ class Target(metaclass=ABCMeta):
         return self._offset
 
     @offset.setter
-    def offset(self, offset: Mapping):
+    def offset(self, offset: Mapping[str, float | u.Quantity]):
         if not isinstance(offset, Mapping):
             raise TypeError("Unkown offset format")
 
@@ -76,13 +77,12 @@ class SpectrumTarget(Target):
     """Base class for Targets with separate spectrum (non-cube)."""
 
     @property
-    def spectrum(self):
+    def spectrum(self) -> SPECTRUM_TYPE:
         """Target spectral information."""
         return self._spectrum
 
-    # TODO: add typing
     @spectrum.setter
-    def spectrum(self, spectrum):
+    def spectrum(self, spectrum: SPECTRUM_TYPE):
         match spectrum:
             case SourceSpectrum():
                 self._spectrum = spectrum
@@ -97,7 +97,7 @@ class SpectrumTarget(Target):
             case _:
                 raise TypeError("Unkown spectrum format.")
 
-    def resolve_spectrum(self) -> Spextrum:
+    def resolve_spectrum(self) -> SourceSpectrum:
         """
         Create SpeXtrum instance from `self.spectrum` identifier.
 
@@ -127,20 +127,22 @@ class SpectrumTarget(Target):
         return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
 
     @property
-    def brightness(self):
+    def brightness(self) -> Brightness:
         """Target brightness information."""
         return self._brightness
 
-    # TODO: add typing
     @brightness.setter
-    def brightness(self, brightness):
+    def brightness(self, brightness: BRIGHTNESS_TYPE):
+        self._brightness = self._parse_brightness(brightness)
+
+    def _parse_brightness(self, brightness: BRIGHTNESS_TYPE):
         match brightness:
             case str(band), u.Quantity() | Number() as mag:
                 # TODO: Consider adding logging about unit assumptions
                 # TODO: Implement support for flux instead of mag
                 if band not in FILTER_SYSTEM:
                     raise ValueError(f"Band '{band}' unknown.")
-                self._brightness = Brightness(band, mag << u.mag)
+                return Brightness(band, mag << u.mag)
             case _:
                 raise TypeError("Unkown brightness format.")
 
