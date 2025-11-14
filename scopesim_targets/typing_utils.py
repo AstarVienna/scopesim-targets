@@ -8,7 +8,9 @@ need to be updated everywhere.
 """
 
 import typing
+from collections.abc import Mapping
 
+from astropy import units as u
 from astropy.coordinates import SkyCoord
 from synphot import SourceSpectrum
 
@@ -16,7 +18,7 @@ from astar_utils import SpectralType
 
 
 # TODO: Properly define POSITION_TYPE
-POSITION_TYPE = SkyCoord | tuple[float, float]
+POSITION_TYPE = SkyCoord | tuple[float, float] | Mapping[str, float | u.Quantity]
 
 # TODO: Properly define SPECTRUM_TYPE
 SPECTRUM_TYPE = SourceSpectrum | SpectralType | str

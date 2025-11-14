@@ -30,16 +30,22 @@ class PointSourceTarget(SpectrumTarget):
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        tbl = Table(names=["x", "y", "ref", "weight"],
-                    units={"x": u.arcsec, "y": u.arcsec})
-        tbl.meta["x_unit"] = "arcsec"  # TODO: are those really needed?
-        tbl.meta["y_unit"] = "arcsec"
+        tbl = self._create_source_table()
         tbl.add_row(self._to_table_row())
 
         source = Source(field=TableSourceField(
             tbl, spectra={0: self.resolve_spectrum()}
         ))
         return source
+
+    def _create_source_table(self) -> Table:
+        tbl = Table(names=["x", "y", "ref", "weight"],
+                    units={"x": u.arcsec, "y": u.arcsec})
+
+        # TODO: Figure out if those are really needed
+        tbl.meta["x_unit"] = "arcsec"
+        tbl.meta["y_unit"] = "arcsec"
+        return tbl
 
     def _xy_arcsec_position(self, local_frame) -> tuple[float, float]:
         # Transform to local offset for ScopeSim
