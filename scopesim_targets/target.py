@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
-from astropy.coordinates import SkyCoord, Angle
+from astropy.coordinates import SkyCoord, Angle, Distance
 from synphot import SourceSpectrum, Observation
 from synphot.units import PHOTLAM
 
@@ -51,6 +51,14 @@ class Target(metaclass=ABCMeta):
                 x_arcsec <<= u.arcsec
                 y_arcsec <<= u.arcsec
                 self._position = SkyCoord(x_arcsec, y_arcsec)
+            case {"x": x_arcsec, "y": y_arcsec, "distance": distance}:
+                x_arcsec <<= u.arcsec
+                y_arcsec <<= u.arcsec
+                distance = Distance(distance)
+                self._position = SkyCoord(x_arcsec, y_arcsec, distance)
+            case {"distance": distance}:
+                # Assume target in center of field
+                self._position = SkyCoord(0*u.deg, 0*u.deg, Distance(distance))
             case _:
                 raise TypeError("Unkown postition format.")
 
