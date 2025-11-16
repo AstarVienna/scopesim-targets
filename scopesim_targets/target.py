@@ -80,6 +80,20 @@ class Target(metaclass=ABCMeta):
             "position_angle": Angle(offset.get("position_angle", 0*u.deg)),
         }
 
+    def resolve_offset(self, parent_position: SkyCoord | None = None):
+        if hasattr(self, "_offset") and self.offset is not None:
+            if parent_position is None:
+                raise ValueError("offset needs parent position to resolve")
+
+            position = parent_position.directional_offset_by(
+                self.offset["position_angle"],
+                self.offset["separation"],
+            )
+            return position
+
+        # Default to (0, 0)
+        return SkyCoord(0*u.deg, 0*u.deg)
+
 
 class SpectrumTarget(Target):
     """Base class for Targets with separate spectrum (non-cube)."""
