@@ -91,25 +91,25 @@ class TestSpectrumTarget:
         # TODO: Add actual test with mock file
         spectrum_target_subcls.spectrum = "file:bogus"
         with pytest.raises(FileNotFoundError):
-            spectrum_target_subcls.resolve_spectrum()
+            spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
 
     # @pytest.mark.webtest
     def test_resolves_spectrum(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G2V"
-        resolved = spectrum_target_subcls.resolve_spectrum()
+        resolved = spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
         assert isinstance(resolved, SourceSpectrum)
 
     # @pytest.mark.webtest
     def test_resolves_spectrum_spex(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "spex:kurucz/g2v"
-        resolved = spectrum_target_subcls.resolve_spectrum()
+        resolved = spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
         assert isinstance(resolved, SourceSpectrum)
 
     # @pytest.mark.webtest
     def test_resolves_spectrum_throws(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G5V"  # not in current default lib
         with pytest.raises(NotInLibraryError):
-            spectrum_target_subcls.resolve_spectrum()
+            spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
 
     # @pytest.mark.webtest
     def test_brightness_number(self, spectrum_target_subcls):
@@ -137,5 +137,5 @@ class TestSpectrumTarget:
         spectrum_target_subcls.spectrum = "G2V"
         spectrum_target_subcls.brightness = ("R", 18)
         scale = spectrum_target_subcls._get_spectrum_scale(
-            spectrum_target_subcls.resolve_spectrum())
+            spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum))
         assert scale == pytest.approx(1.9e-23)  # TODO: CHECK THIS NUMBER!!!

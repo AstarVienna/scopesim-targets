@@ -105,23 +105,28 @@ class SpectrumTarget(Target):
 
     @spectrum.setter
     def spectrum(self, spectrum: SPECTRUM_TYPE):
+        self._spectrum = self._parse_spectrum(spectrum)
+
+    @staticmethod
+    def _parse_spectrum(spectrum: SPECTRUM_TYPE):
         match spectrum:
             case SourceSpectrum():
-                self._spectrum = spectrum
+                return spectrum
             case str(spex) if spex.startswith("spex:"):
                 # TODO: Consider adding check at this point if spex exists
-                self._spectrum = spex
+                return spex
             case str(file) if file.startswith("file:"):
                 # TODO: Consider adding check if file exists already here
-                self._spectrum = file
+                return file
             case str() | SpectralType():
-                self._spectrum = SpectralType(spectrum)
+                return SpectralType(spectrum)
             case _:
                 raise TypeError("Unkown spectrum format.")
 
-    def resolve_spectrum(self) -> SourceSpectrum:
+    @staticmethod
+    def resolve_spectrum(spectrum: SPECTRUM_TYPE) -> SourceSpectrum:
         """
-        Create SpeXtrum instance from `self.spectrum` identifier.
+        Create SpeXtrum instance from `spectrum` identifier.
 
         Can resolve a ``SpectralType`` instance (next-closest available template
         spectrum) or a string that is a valid entry in the SpeXtrum database.
@@ -134,19 +139,19 @@ class SpectrumTarget(Target):
         Spextrum
 
         """
-        if isinstance(self.spectrum, str) and self.spectrum.startswith("spex:"):
+        if isinstance(spectrum, str) and spectrum.startswith("spex:"):
             # Explicit SpeXtra identifier
-            return Spextrum(self.spectrum.removeprefix("spex:"))
+            return Spextrum(spectrum.removeprefix("spex:"))
 
-        if isinstance(self.spectrum, str) and self.spectrum.startswith("file:"):
+        if isinstance(spectrum, str) and spectrum.startswith("file:"):
             # Explicit SpeXtra identifier
             # TODO: Use pathlib file URI here
-            return SourceSpectrum.from_file(self.spectrum.removeprefix("file:"))
+            return SourceSpectrum.from_file(spectrum.removeprefix("file:"))
 
         # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
         #       letters, while SpectralType converts to uppercase. This needs a
         #       proper fix down the road.
-        return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
+        return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(spectrum).lower()}")
 
     @property
     def brightness(self) -> Brightness:
@@ -157,7 +162,8 @@ class SpectrumTarget(Target):
     def brightness(self, brightness: BRIGHTNESS_TYPE):
         self._brightness = self._parse_brightness(brightness)
 
-    def _parse_brightness(self, brightness: BRIGHTNESS_TYPE):
+    @staticmethod
+    def _parse_brightness(brightness: BRIGHTNESS_TYPE):
         match brightness:
             case str(band), u.Quantity() | Number() as mag:
                 # TODO: Consider adding logging about unit assumptions
@@ -169,8 +175,7 @@ class SpectrumTarget(Target):
                 raise TypeError("Unkown brightness format.")
 
     def _get_spectrum_scale(self, spectrum: SourceSpectrum) -> float:
-        filter_name = f"{FILTER_SYSTEM.name}/{self.brightness.band}"
-        band = Passband(filter_name)
+        band = Passband(f"{FILTER_SYSTEM.name}/{self.brightness.band}")
 
         # TODO: Carefully check this implementation!
         #       Why does Spextrum.flat_spectrum() not need a band?

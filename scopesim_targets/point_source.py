@@ -34,7 +34,7 @@ class PointSourceTarget(SpectrumTarget):
         tbl.add_row(self._to_table_row())
 
         source = Source(field=TableSourceField(
-            tbl, spectra={0: self.resolve_spectrum()}
+            tbl, spectra={0: self.resolve_spectrum(self.spectrum)}
         ))
         return source
 
@@ -69,7 +69,7 @@ class PointSourceTarget(SpectrumTarget):
 
         # If not given from parent, resolve now
         if spectrum is None:
-            spectrum = self.resolve_spectrum()
+            spectrum = self.resolve_spectrum(self.spectrum)
         weight = self._get_spectrum_scale(spectrum)
 
         row = {
