@@ -112,15 +112,15 @@ class Binary(PointSourceTarget):
         match brightness, contrast:
             case None, None:
                 pass  # TODO: What to do here?
+            case (str(), u.Quantity() | Number()) as primary, None:
+                self.brightness = primary
+                # self.contrast = None  # replace?
+            case None, contrast:
+                # self.brightness = None  # replace?
+                self.contrast = contrast
             case (primary, secondary), None:
                 self.brightness = primary
                 self.brightness_secondary = secondary
-            case (str(), u.Quantity() | Number()) as primary, None:
-                self.brightness = primary
-                self.contrast = None  # replace?
-            case None, contrast:
-                self.brightness = None  # replace?
-                self.contrast = contrast
             case (str(), u.Quantity() | Number()) as primary, contrast:
                 self.brightness = primary
                 self.contrast = contrast

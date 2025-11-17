@@ -60,6 +60,21 @@ class TestBinary:
         with pytest.raises(TypeError):
             Binary(brightness=(("R", 10), ("V", 15*u.mag)), contrast=100.)
 
+    def test_invalid_brightness_and_contrast_throws(self):
+        with pytest.raises(TypeError):
+            Binary(brightness="bogus", contrast="bogus")
+
+    @pytest.mark.parametrize(
+        ("brightness", "contrast"), (
+            (None, None),
+            (("R", 10), None),
+            (None, 10.),
+        ))
+    def test_other_cases(self, brightness, contrast):
+        # TODO: Replace this with more meaningful tests!
+        tgt = Binary(brightness=brightness, contrast=contrast)
+        assert isinstance(tgt, Binary)
+
     def test_to_source(self):
         # TODO: cover more possible cases
         tgt = Binary(
