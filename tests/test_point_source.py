@@ -3,6 +3,7 @@
 
 import pytest
 import yaml
+import numpy as np
 from astropy import units as u
 
 from scopesim_targets.target import Brightness
@@ -58,3 +59,15 @@ class TestBinary:
     def test_two_brightnesses_and_contrast_throws(self):
         with pytest.raises(TypeError):
             Binary(brightness=(("R", 10), ("V", 15*u.mag)), contrast=100.)
+
+    def test_to_source(self):
+        # TODO: cover more possible cases
+        tgt = Binary(
+            brightness=("R", 10),
+            contrast=100.,
+            spectra=["A0V", "M2V"],
+            offset={"separation": 5*u.arcsec},
+        )
+        src = tgt.to_source()
+        np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
+        np.testing.assert_array_equal(src.fields[0].field["y"], [0, 5])
