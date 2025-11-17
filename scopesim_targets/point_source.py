@@ -56,8 +56,8 @@ class PointSourceTarget(SpectrumTarget):
         local_position = self.position.transform_to(local_frame)
 
         # ra, dec turn into lon, lat in offset frame, .round(6) is microarcsec
-        x_arcsec = local_position.lon.to(u.arcsec).round(6)
-        y_arcsec = local_position.lat.to(u.arcsec).round(6)
+        x_arcsec = local_position.lon.to_value(u.arcsec).round(6)
+        y_arcsec = local_position.lat.to_value(u.arcsec).round(6)
         return x_arcsec, y_arcsec
 
     def _to_table_row(
@@ -190,13 +190,13 @@ class Binary(PointSourceTarget):
 
         local_frame = primary_position.skyoffset_frame()
         primary_position = primary_position.transform_to(local_frame)
-        x_arcsec_pri = primary_position.lon.to(u.arcsec).round(6)
-        y_arcsec_pri = primary_position.lat.to(u.arcsec).round(6)
+        x_arcsec_pri = primary_position.lon.to_value(u.arcsec).round(6)
+        y_arcsec_pri = primary_position.lat.to_value(u.arcsec).round(6)
 
         secondary_position = self.resolve_offset(primary_position)
         secondary_position = secondary_position.transform_to(local_frame)
-        x_arcsec_sec = secondary_position.lon.to(u.arcsec).round(6)
-        y_arcsec_sec = secondary_position.lat.to(u.arcsec).round(6)
+        x_arcsec_sec = secondary_position.lon.to_value(u.arcsec).round(6)
+        y_arcsec_sec = secondary_position.lat.to_value(u.arcsec).round(6)
 
         spectra = {
             0: self.resolve_spectrum(self.primary_spectrum),
