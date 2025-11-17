@@ -85,9 +85,18 @@ class Target(metaclass=ABCMeta):
             if parent_position is None:
                 raise ValueError("offset needs parent position to resolve")
 
+            separation = self.offset["separation"]
+            if separation.unit.physical_type == "length":
+                with u.set_enabled_equivalencies(u.dimensionless_angles()):
+                    separation = separation / parent_position.distance
+                    separation <<= u.arcsec
+            elif separation.unit.physical_type != "angle":
+                # TODO: Or move this to offset setter??
+                raise ValueError("separation must be length or angle")
+
             position = parent_position.directional_offset_by(
                 self.offset["position_angle"],
-                self.offset["separation"],
+                separation,
             )
             return position
 
