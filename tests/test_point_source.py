@@ -3,8 +3,11 @@
 
 import pytest
 import yaml
+import numpy as np
+from astropy import units as u
 
-from scopesim_targets.point_source import PointSourceTarget, Star
+from scopesim_targets.target import Brightness
+from scopesim_targets.point_source import PointSourceTarget, Star, Binary
 
 
 class TestStar:
@@ -32,3 +35,63 @@ class TestStar:
             brightness: ["R", 15 mag]
         """)
         assert isinstance(tgt, Star)
+
+
+class TestBinary:
+    def test_two_brightnesses(self):
+        tgt = Binary(brightness=(("R", 10), ("V", 15*u.mag)))
+        assert tgt.brightness == Brightness("R", 10*u.mag)
+        assert tgt.brightness_secondary == Brightness("V", 15*u.mag)
+        with pytest.raises(AttributeError):
+            tgt.contrast
+
+    def test_brightness_and_contrast(self):
+        tgt = Binary(brightness=("R", 10), contrast=100.)
+        assert tgt.brightness == Brightness("R", 10*u.mag)
+        assert tgt.contrast == 100
+        with pytest.raises(AttributeError):
+            tgt.brightness_secondary
+
+    def test_invalid_contrast_throws(self):
+        with pytest.raises(TypeError):
+            Binary(brightness=("R", 10), contrast="bogus")
+
+    def test_two_brightnesses_and_contrast_throws(self):
+        with pytest.raises(TypeError):
+            Binary(brightness=(("R", 10), ("V", 15*u.mag)), contrast=100.)
+
+    def test_invalid_brightness_and_contrast_throws(self):
+        with pytest.raises(TypeError):
+            Binary(brightness="bogus", contrast="bogus")
+
+    @pytest.mark.parametrize(
+        ("brightness", "contrast"), (
+            (None, None),
+            (("R", 10), None),
+            (None, 10.),
+        ))
+    def test_other_cases(self, brightness, contrast):
+        # TODO: Replace this with more meaningful tests!
+        tgt = Binary(brightness=brightness, contrast=contrast)
+        assert isinstance(tgt, Binary)
+
+    def test_to_source(self):
+        # TODO: cover more possible cases
+        tgt = Binary(
+            brightness=("R", 10),
+            contrast=100.,
+            spectra=["A0V", "M2V"],
+            offset={"separation": 5*u.arcsec},
+        )
+        src = tgt.to_source()
+        np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
+        np.testing.assert_array_equal(src.fields[0].field["y"], [0, 5])
+
+    def test_throws_if_no_contras_or_secondary_brightness(self):
+        tgt = Binary(
+            spectra=("A0V", "M2V"),
+            brightness=("R", 10),
+            offset={"separation": 2*u.arcsec},
+        )
+        with pytest.raises(ValueError):
+            tgt.to_source()

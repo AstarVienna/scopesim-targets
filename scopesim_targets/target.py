@@ -7,13 +7,15 @@ from collections.abc import Mapping
 from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
-from astropy.coordinates import SkyCoord, Angle
+from astropy.coordinates import SkyCoord, Angle, Distance
 from synphot import SourceSpectrum, Observation
 from synphot.units import PHOTLAM
 
 from astar_utils import SpectralType
 from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 from scopesim import Source
+
+from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 
 
 Brightness = namedtuple("Brightness", ["band", "mag"])
@@ -32,7 +34,7 @@ class Target(metaclass=ABCMeta):
         raise NotImplementedError()
 
     @property
-    def position(self):
+    def position(self) -> SkyCoord:
         """Target position (center) as SkyCoord."""
         # TODO: Consider adding default (with logging) here if
         #       self._position is None and self._offset is None
@@ -40,16 +42,23 @@ class Target(metaclass=ABCMeta):
         #       and offset frame from that.
         return self._position
 
-    # TODO: add typing
     @position.setter
-    def position(self, position):
+    def position(self, position: POSITION_TYPE):
         match position:
             case SkyCoord():
                 self._position = position
+            case {"x": x_arcsec, "y": y_arcsec, "distance": distance}:
+                x_arcsec <<= u.arcsec
+                y_arcsec <<= u.arcsec
+                distance = Distance(distance)
+                self._position = SkyCoord(x_arcsec, y_arcsec, distance)
             case (x_arcsec, y_arcsec) | {"x": x_arcsec, "y": y_arcsec}:
                 x_arcsec <<= u.arcsec
                 y_arcsec <<= u.arcsec
                 self._position = SkyCoord(x_arcsec, y_arcsec)
+            case {"distance": distance}:
+                # Assume target in center of field
+                self._position = SkyCoord(0*u.deg, 0*u.deg, Distance(distance))
             case _:
                 raise TypeError("Unkown postition format.")
 
@@ -59,7 +68,7 @@ class Target(metaclass=ABCMeta):
         return self._offset
 
     @offset.setter
-    def offset(self, offset: Mapping):
+    def offset(self, offset: Mapping[str, float | u.Quantity]):
         if not isinstance(offset, Mapping):
             raise TypeError("Unkown offset format")
 
@@ -71,35 +80,62 @@ class Target(metaclass=ABCMeta):
             "position_angle": Angle(offset.get("position_angle", 0*u.deg)),
         }
 
+    def resolve_offset(self, parent_position: SkyCoord | None = None):
+        if hasattr(self, "_offset") and self.offset is not None:
+            if parent_position is None:
+                raise ValueError("offset needs parent position to resolve")
+
+            separation = self.offset["separation"]
+            if separation.unit.physical_type == "length":
+                with u.set_enabled_equivalencies(u.dimensionless_angles()):
+                    separation = separation / parent_position.distance
+                    separation <<= u.arcsec
+            elif separation.unit.physical_type != "angle":
+                # TODO: Or move this to offset setter??
+                raise ValueError("separation must be length or angle")
+
+            position = parent_position.directional_offset_by(
+                self.offset["position_angle"],
+                separation,
+            )
+            return position
+
+        # Default to (0, 0)
+        return SkyCoord(0*u.deg, 0*u.deg)
+
 
 class SpectrumTarget(Target):
     """Base class for Targets with separate spectrum (non-cube)."""
 
     @property
-    def spectrum(self):
+    def spectrum(self) -> SPECTRUM_TYPE:
         """Target spectral information."""
         return self._spectrum
 
-    # TODO: add typing
     @spectrum.setter
-    def spectrum(self, spectrum):
+    def spectrum(self, spectrum: SPECTRUM_TYPE):
+        self._spectrum = self._parse_spectrum(spectrum)
+
+    @staticmethod
+    def _parse_spectrum(spectrum: SPECTRUM_TYPE):
         match spectrum:
             case SourceSpectrum():
-                self._spectrum = spectrum
+                return spectrum
             case str(spex) if spex.startswith("spex:"):
                 # TODO: Consider adding check at this point if spex exists
-                self._spectrum = spex
+                return spex
             case str(file) if file.startswith("file:"):
                 # TODO: Consider adding check if file exists already here
-                self._spectrum = file
+                return file
             case str() | SpectralType():
-                self._spectrum = SpectralType(spectrum)
+                return SpectralType(spectrum)
             case _:
                 raise TypeError("Unkown spectrum format.")
 
-    def resolve_spectrum(self) -> Spextrum:
+    @staticmethod
+    def resolve_spectrum(spectrum: SPECTRUM_TYPE) -> SourceSpectrum:
         """
-        Create SpeXtrum instance from `self.spectrum` identifier.
+        Create SpeXtrum instance from `spectrum` identifier.
 
         Can resolve a ``SpectralType`` instance (next-closest available template
         spectrum) or a string that is a valid entry in the SpeXtrum database.
@@ -112,46 +148,52 @@ class SpectrumTarget(Target):
         Spextrum
 
         """
-        if isinstance(self.spectrum, str) and self.spectrum.startswith("spex:"):
+        if isinstance(spectrum, str) and spectrum.startswith("spex:"):
             # Explicit SpeXtra identifier
-            return Spextrum(self.spectrum.removeprefix("spex:"))
+            return Spextrum(spectrum.removeprefix("spex:"))
 
-        if isinstance(self.spectrum, str) and self.spectrum.startswith("file:"):
+        if isinstance(spectrum, str) and spectrum.startswith("file:"):
             # Explicit SpeXtra identifier
             # TODO: Use pathlib file URI here
-            return SourceSpectrum.from_file(self.spectrum.removeprefix("file:"))
+            return SourceSpectrum.from_file(spectrum.removeprefix("file:"))
 
         # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
         #       letters, while SpectralType converts to uppercase. This needs a
         #       proper fix down the road.
-        return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(self.spectrum).lower()}")
+        return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(spectrum).lower()}")
 
     @property
-    def brightness(self):
+    def brightness(self) -> Brightness:
         """Target brightness information."""
         return self._brightness
 
-    # TODO: add typing
     @brightness.setter
-    def brightness(self, brightness):
+    def brightness(self, brightness: BRIGHTNESS_TYPE):
+        self._brightness = self._parse_brightness(brightness)
+
+    @staticmethod
+    def _parse_brightness(brightness: BRIGHTNESS_TYPE):
         match brightness:
             case str(band), u.Quantity() | Number() as mag:
                 # TODO: Consider adding logging about unit assumptions
                 # TODO: Implement support for flux instead of mag
                 if band not in FILTER_SYSTEM:
                     raise ValueError(f"Band '{band}' unknown.")
-                self._brightness = Brightness(band, mag << u.mag)
+                return Brightness(band, mag << u.mag)
             case _:
                 raise TypeError("Unkown brightness format.")
 
-    def _get_spectrum_scale(self, spectrum: SourceSpectrum) -> float:
-        filter_name = f"{FILTER_SYSTEM.name}/{self.brightness.band}"
-        band = Passband(filter_name)
+    @staticmethod
+    def _get_spectrum_scale(
+        spectrum: SourceSpectrum,
+        brightness: Brightness,
+    ) -> float:
+        band = Passband(f"{FILTER_SYSTEM.name}/{brightness.band}")
 
         # TODO: Carefully check this implementation!
         #       Why does Spextrum.flat_spectrum() not need a band?
         ref_flux = Observation(
-            Spextrum.flat_spectrum(amplitude=self.brightness.mag),
+            Spextrum.flat_spectrum(amplitude=brightness.mag),
             band,
         ).effstim(flux_unit=PHOTLAM)
         real_flux = Observation(spectrum, band).effstim(flux_unit=PHOTLAM)

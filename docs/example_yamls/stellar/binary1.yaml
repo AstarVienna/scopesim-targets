@@ -3,6 +3,6 @@
 offset:
   separation: 5 arcsec
   # position angle implicitly along x+ axis
-spectra: [F0V, M5V]
+spectra: [F0V, M2V]
 brightness: ["R", 15 mag]  # Primary
 contrast: 100.0  # F_pri / F_sec
