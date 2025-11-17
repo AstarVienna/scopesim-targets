@@ -183,13 +183,17 @@ class SpectrumTarget(Target):
             case _:
                 raise TypeError("Unkown brightness format.")
 
-    def _get_spectrum_scale(self, spectrum: SourceSpectrum) -> float:
-        band = Passband(f"{FILTER_SYSTEM.name}/{self.brightness.band}")
+    @staticmethod
+    def _get_spectrum_scale(
+        spectrum: SourceSpectrum,
+        brightness: Brightness,
+    ) -> float:
+        band = Passband(f"{FILTER_SYSTEM.name}/{brightness.band}")
 
         # TODO: Carefully check this implementation!
         #       Why does Spextrum.flat_spectrum() not need a band?
         ref_flux = Observation(
-            Spextrum.flat_spectrum(amplitude=self.brightness.mag),
+            Spextrum.flat_spectrum(amplitude=brightness.mag),
             band,
         ).effstim(flux_unit=PHOTLAM)
         real_flux = Observation(spectrum, band).effstim(flux_unit=PHOTLAM)

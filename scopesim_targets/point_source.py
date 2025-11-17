@@ -74,7 +74,7 @@ class PointSourceTarget(SpectrumTarget):
         # If not given from parent, resolve now
         if spectrum is None:
             spectrum = self.resolve_spectrum(self.spectrum)
-        weight = self._get_spectrum_scale(spectrum)
+        weight = self._get_spectrum_scale(spectrum, self.brightness)
 
         row = {
             "x": x_arcsec,
@@ -206,13 +206,22 @@ class Binary(PointSourceTarget):
         primary = {
             "x": x_arcsec_pri,
             "y": y_arcsec_pri,
-            "weight": self._get_spectrum_scale(spectra[0]),
+            "weight": self._get_spectrum_scale(spectra[0], self.brightness),
             "ref": 0,
         }
+        if hasattr(self, "_contrast"):
+            secondary_weight = primary["weight"] / self.contrast
+        elif hasattr(self, "_brightness_secondary"):
+            secondary_weight = self._get_spectrum_scale(
+                spectra[1], self.brightness_secondary)
+        else:
+            raise ValueError(
+                "Either contrast or secondary brightness must be given.")
+
         secondary = {
             "x": x_arcsec_sec,
             "y": y_arcsec_sec,
-            "weight": primary["weight"] / self.contrast,
+            "weight": secondary_weight,
             "ref": 1,
         }
 

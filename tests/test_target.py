@@ -162,5 +162,6 @@ class TestSpectrumTarget:
         spectrum_target_subcls.spectrum = "G2V"
         spectrum_target_subcls.brightness = ("R", 18)
         scale = spectrum_target_subcls._get_spectrum_scale(
-            spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum))
+            spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum),
+            spectrum_target_subcls.brightness)
         assert scale == pytest.approx(1.9e-23)  # TODO: CHECK THIS NUMBER!!!
