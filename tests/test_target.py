@@ -53,6 +53,15 @@ class TestTarget:
         with pytest.raises(TypeError):
             target_subcls.position = "bogus"
 
+    def test_position_with_distance(self, target_subcls):
+        target_subcls.position = {"x": -2, "y": 10.5, "distance": 20*u.pc}
+        expected = SkyCoord(-2*u.arcsec, 10.5*u.arcsec, 20*u.pc)
+        assert target_subcls.position == expected
+
+    def test_negative_position_throws(self, target_subcls):
+        with pytest.raises(ValueError):
+            target_subcls.position = {"distance": -20*u.pc}
+
     def test_offset(self, target_subcls):
         target_subcls.offset = {
             "separation": 2*u.AU,

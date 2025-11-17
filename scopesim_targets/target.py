@@ -47,15 +47,15 @@ class Target(metaclass=ABCMeta):
         match position:
             case SkyCoord():
                 self._position = position
-            case (x_arcsec, y_arcsec) | {"x": x_arcsec, "y": y_arcsec}:
-                x_arcsec <<= u.arcsec
-                y_arcsec <<= u.arcsec
-                self._position = SkyCoord(x_arcsec, y_arcsec)
             case {"x": x_arcsec, "y": y_arcsec, "distance": distance}:
                 x_arcsec <<= u.arcsec
                 y_arcsec <<= u.arcsec
                 distance = Distance(distance)
                 self._position = SkyCoord(x_arcsec, y_arcsec, distance)
+            case (x_arcsec, y_arcsec) | {"x": x_arcsec, "y": y_arcsec}:
+                x_arcsec <<= u.arcsec
+                y_arcsec <<= u.arcsec
+                self._position = SkyCoord(x_arcsec, y_arcsec)
             case {"distance": distance}:
                 # Assume target in center of field
                 self._position = SkyCoord(0*u.deg, 0*u.deg, Distance(distance))
