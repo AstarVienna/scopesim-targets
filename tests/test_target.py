@@ -79,6 +79,14 @@ class TestTarget:
         with pytest.raises(TypeError):
             target_subcls.offset = "bogus"
 
+    def test_default_offset(self, target_subcls):
+        assert target_subcls.resolve_offset() == SkyCoord(0, 0, unit=u.arcsec)
+
+    def test_offset_needs_parent(self, target_subcls):
+        target_subcls.offset = {"separation": 5*u.arcsec}
+        with pytest.raises(ValueError):
+            target_subcls.resolve_offset()
+
 
 class TestSpectrumTarget:
     # @pytest.mark.webtest
