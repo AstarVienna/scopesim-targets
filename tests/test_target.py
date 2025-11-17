@@ -87,6 +87,14 @@ class TestTarget:
         with pytest.raises(ValueError):
             target_subcls.resolve_offset()
 
+    def test_offset_length_with_distance(self, target_subcls):
+        # target_subcls.position = {"distance": 10*u.pc}
+        target_subcls.offset = {"separation": .1*u.arcsec}
+        # TODO: Try to do without this...
+        parent_position = SkyCoord(0*u.deg, 0*u.deg, 10*u.pc)
+        offset = target_subcls.resolve_offset(parent_position)
+        assert (offset.dec << u.arcsec).round(7) == .1*u.arcsec
+
 
 class TestSpectrumTarget:
     # @pytest.mark.webtest
