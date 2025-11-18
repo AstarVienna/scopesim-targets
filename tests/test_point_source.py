@@ -7,7 +7,12 @@ import numpy as np
 from astropy import units as u
 
 from scopesim_targets.target import Brightness
-from scopesim_targets.point_source import PointSourceTarget, Star, Binary
+from scopesim_targets.point_source import (
+    PointSourceTarget,
+    Star,
+    Binary,
+    Exoplanet,
+)
 
 
 class TestStar:
@@ -95,3 +100,9 @@ class TestBinary:
         )
         with pytest.raises(ValueError):
             tgt.to_source()
+
+
+class TestExoplanet:
+    def test_basic(self):
+        tgt = Exoplanet()
+        assert isinstance(tgt, Exoplanet)
