@@ -1,5 +1,6 @@
 !Sersic
 position:
+  !Coord
   ra: 190.5 deg
   dec: 11.6 deg
 spectrum: "spex:brown/NGC4621"
