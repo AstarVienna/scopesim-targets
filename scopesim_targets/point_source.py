@@ -271,6 +271,57 @@ class Exoplanet(PointSourceTarget):
         self._spectrum = self._parse_spectrum(spectrum)
 
 
+# TODO: Common base class for multi-component targets
+class PlanetarySystem(PointSourceTarget):
+    """Planetary system with primary and components."""
+
+    def __init__(
+        self,
+        position: POSITION_TYPE | None = None,
+        primary: PointSourceTarget | None = None,
+        components: Sequence[PointSourceTarget] | None = None,
+    ) -> None:
+        if position is not None:
+            self.position = position
+        if primary is not None:
+            self.primary = primary
+        if components is not None:
+            self.components = components
+
+    def to_source(self) -> Source:
+        """Convert to ScopeSim Source object."""
+        tbl = self._create_source_table()
+
+        local_frame = self.position.skyoffset_frame()
+        spectra = {0: self.primary.resolve_spectrum(self.primary.spectrum)}
+
+        # HACK: Should be able to pass this down
+        self.primary.position = self.position
+        tbl.add_row(self.primary._to_table_row(local_frame))
+
+        for ref, component in enumerate(self.components, start=1):
+            spectrum = component.resolve_spectrum(component.spectrum)
+
+            component_position = component.resolve_offset(self.position)
+            component_position = component_position.transform_to(local_frame)
+            x_arcsec = component_position.lon.to_value(u.arcsec).round(6)
+            y_arcsec = component_position.lat.to_value(u.arcsec).round(6)
+
+            row = {
+                "x": x_arcsec,
+                "y": y_arcsec,
+                "weight": tbl[0]["weight"] / component.contrast,
+                "ref": ref,
+            }
+
+            tbl.add_row(row)
+            spectra[ref] = spectrum
+
+        source = Source(field=TableSourceField(tbl, spectra=spectra))
+        return source
+
+
 register_target_constructor(Star)
 register_target_constructor(Binary)
 register_target_constructor(Exoplanet)
+register_target_constructor(PlanetarySystem)
