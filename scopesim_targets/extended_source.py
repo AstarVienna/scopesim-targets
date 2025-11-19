@@ -9,7 +9,7 @@ from astropy import units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.modeling import Model
-from astropy.modeling.functional_models import GeneralSersic2D
+from astropy.modeling.functional_models import GeneralSersic2D, Ring2D
 
 from scopesim import Source
 from scopesim.source.source_fields import ImageSourceField
@@ -41,9 +41,13 @@ class ParametrizedTarget(ExtendedSourceTarget):
 
         hdu = fits.ImageHDU(header=hdr, data=img)
 
-        spectrum = self.resolve_spectrum(
-            self.spectrum).scale_to_magnitude(
-                self.brightness.mag, self.brightness.band)
+        # HACK: Do this properly FFS
+        if isinstance(self.spectrum, str) and self.spectrum.startswith("blackbody:"):
+            spectrum = self.resolve_spectrum(self.spectrum, self.brightness)
+        else:
+            spectrum = self.resolve_spectrum(
+                self.spectrum).scale_to_magnitude(
+                    self.brightness.mag, self.brightness.band)
 
         source = Source(field=ImageSourceField(
             hdu, spectra={0: spectrum}
@@ -104,4 +108,32 @@ class Sersic(ParametrizedTarget):
             self._model.bounding_box = None  # TODO: Revisit this
 
 
+class Disk(ParametrizedTarget):
+    """Simple disk model Target."""
+
+    _model_cls = Ring2D
+
+    def __init__(
+        self,
+        position: POSITION_TYPE | None = None,
+        spectrum: SPECTRUM_TYPE | None = None,
+        brightness: BRIGHTNESS_TYPE | None = None,
+        radius: u.Quantity | Number | None = None,
+        width: u.Quantity | Number | None = None,
+    ) -> None:
+        if position is not None:
+            self.position = position
+        if spectrum is not None:
+            self.spectrum = spectrum
+        if brightness is not None:
+            self.brightness = brightness
+
+        if radius is not None and width is not None:
+            self._model = self._model_cls(r_in=radius, width=width)
+            self._model.bounding_box = None  # TODO: Revisit this
+        else:
+            raise ValueError("radius and width are currently required")
+
+
 register_target_constructor(Sersic)
+register_target_constructor(Disk)
