@@ -12,11 +12,11 @@ components:
     offset:
       separation: .3 AU
       position_angle: 50 deg  # explicit angle from x+ axis
-    contrast: 1e4
+    contrast: 1.0e+4
     # spectrum taken from default planetary spectrum
   - !Exoplanet
     offset:
       separation: 2 AU
       position_angle: 0.7 cycle  # phase
-    contrast: 5e5
+    contrast: 5.0e+5
     spectrum: "file://path/to/custom/spectrum.fits"
