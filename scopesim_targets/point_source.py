@@ -266,6 +266,10 @@ class Exoplanet(PointSourceTarget):
             pass
         return Spextrum("irtf/Neptune")
 
+    @spectrum.setter
+    def spectrum(self, spectrum: SPECTRUM_TYPE):
+        self._spectrum = self._parse_spectrum(spectrum)
+
 
 register_target_constructor(Star)
 register_target_constructor(Binary)
