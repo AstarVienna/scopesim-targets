@@ -78,3 +78,30 @@ class ParametrizedTarget(ExtendedSourceTarget):
         wcs.wcs.crval = crval
         wcs.wcs.cdelt = cdelt
         return wcs
+
+
+class Sersic(ParametrizedTarget):
+    """Single-component Sersic profile Target."""
+
+    _model_cls = GeneralSersic2D
+
+    def __init__(
+        self,
+        position: POSITION_TYPE | None = None,
+        spectrum: SPECTRUM_TYPE | None = None,
+        brightness: BRIGHTNESS_TYPE | None = None,
+        params: Mapping[str, u.Quantity | Number] | None = None
+    ) -> None:
+        if position is not None:
+            self.position = position
+        if spectrum is not None:
+            self.spectrum = spectrum
+        if brightness is not None:
+            self.brightness = brightness
+
+        if params is not None:
+            self._model = self._model_cls(**params)
+            self._model.bounding_box = None  # TODO: Revisit this
+
+
+register_target_constructor(Sersic)
