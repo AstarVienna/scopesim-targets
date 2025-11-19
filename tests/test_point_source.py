@@ -113,3 +113,8 @@ class TestExoplanet:
         Exoplanet(position=(0, 1), offset={"separation": 2*u.arcsec},
                   brightness=("K", 23), spectrum="spex:irtf/Jupiter",
                   contrast=1e3)
+
+    # webtest
+    def test_default_spectrum(self):
+        tgt = Exoplanet(offset={"separation": 2*u.arcsec}, contrast=1e3)
+        assert str(tgt.spectrum) == "Spextrum(irtf/Neptune)"
