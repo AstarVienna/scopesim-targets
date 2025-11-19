@@ -7,7 +7,12 @@ import numpy as np
 from astropy import units as u
 
 from scopesim_targets.target import Brightness
-from scopesim_targets.point_source import PointSourceTarget, Star, Binary
+from scopesim_targets.point_source import (
+    PointSourceTarget,
+    Star,
+    Binary,
+    Exoplanet,
+)
 
 
 class TestStar:
@@ -95,3 +100,21 @@ class TestBinary:
         )
         with pytest.raises(ValueError):
             tgt.to_source()
+
+
+class TestExoplanet:
+    def test_basic(self):
+        tgt = Exoplanet()
+        assert isinstance(tgt, Exoplanet)
+
+    # webtest
+    def test_all_attributes(self):
+        # TODO: Replace this with a more meaningful test
+        Exoplanet(position=(0, 1), offset={"separation": 2*u.arcsec},
+                  brightness=("K", 23), spectrum="spex:irtf/Jupiter",
+                  contrast=1e3)
+
+    # webtest
+    def test_default_spectrum(self):
+        tgt = Exoplanet(offset={"separation": 2*u.arcsec}, contrast=1e3)
+        assert str(tgt.spectrum) == "Spextrum(irtf/Neptune)"

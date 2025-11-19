@@ -151,6 +151,9 @@ class SpectrumTarget(Target):
         Spextrum
 
         """
+        if isinstance(spectrum, SourceSpectrum):
+            return spectrum
+
         if isinstance(spectrum, str) and spectrum.startswith("spex:"):
             # Explicit SpeXtra identifier
             return Spextrum(spectrum.removeprefix("spex:"))

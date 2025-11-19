@@ -8,6 +8,7 @@ from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
 
+from spextra import Spextrum
 from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
 
@@ -234,5 +235,42 @@ class Binary(PointSourceTarget):
         return source
 
 
+class Exoplanet(PointSourceTarget):
+    """Exoplanet (point source) with default spectrum of Neptune."""
+
+    def __init__(
+        self,
+        position: POSITION_TYPE | None = None,
+        offset: Mapping[str, float | u.Quantity] | None = None,
+        spectrum: SPECTRUM_TYPE | None = None,
+        brightness: BRIGHTNESS_TYPE | None = None,
+        contrast: float | None = None,
+    ) -> None:
+        if position is not None:
+            self.position = position
+        if offset is not None:
+            self.offset = offset
+        if spectrum is not None:
+            self.spectrum = spectrum
+        if brightness is not None:
+            self.brightness = brightness
+        if contrast is not None:
+            self.contrast = contrast
+
+    @property
+    def spectrum(self):
+        # Deal with default here
+        try:
+            return self._spectrum
+        except AttributeError:
+            pass
+        return Spextrum("irtf/Neptune")
+
+    @spectrum.setter
+    def spectrum(self, spectrum: SPECTRUM_TYPE):
+        self._spectrum = self._parse_spectrum(spectrum)
+
+
 register_target_constructor(Star)
 register_target_constructor(Binary)
+register_target_constructor(Exoplanet)
