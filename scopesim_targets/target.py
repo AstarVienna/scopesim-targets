@@ -127,13 +127,16 @@ class SpectrumTarget(Target):
             case str(file) if file.startswith("file:"):
                 # TODO: Consider adding check if file exists already here
                 return file
+            case str(file) if file.startswith("blackbody:"):
+                # TODO: idk
+                return file
             case str() | SpectralType():
                 return SpectralType(spectrum)
             case _:
                 raise TypeError("Unkown spectrum format.")
 
     @staticmethod
-    def resolve_spectrum(spectrum: SPECTRUM_TYPE) -> SourceSpectrum:
+    def resolve_spectrum(spectrum: SPECTRUM_TYPE, brightness: Brightness | None = None) -> SourceSpectrum:
         """
         Create SpeXtrum instance from `spectrum` identifier.
 
@@ -156,6 +159,12 @@ class SpectrumTarget(Target):
             # Explicit SpeXtra identifier
             # TODO: Use pathlib file URI here
             return SourceSpectrum.from_file(spectrum.removeprefix("file:"))
+
+        if isinstance(spectrum, str) and spectrum.startswith("blackbody:"):
+            temp = u.Quantity(spectrum.removeprefix("blackbody:"))
+            spec = Spextrum.black_body_spectrum(
+                temp, brightness.mag, brightness.band)
+            return spec
 
         # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
         #       letters, while SpectralType converts to uppercase. This needs a

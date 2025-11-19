@@ -41,9 +41,13 @@ class ParametrizedTarget(ExtendedSourceTarget):
 
         hdu = fits.ImageHDU(header=hdr, data=img)
 
-        spectrum = self.resolve_spectrum(
-            self.spectrum).scale_to_magnitude(
-                self.brightness.mag, self.brightness.band)
+        # HACK: Do this properly FFS
+        if isinstance(self.spectrum, str) and self.spectrum.startswith("blackbody:"):
+            spectrum = self.resolve_spectrum(self.spectrum, self.brightness)
+        else:
+            spectrum = self.resolve_spectrum(
+                self.spectrum).scale_to_magnitude(
+                    self.brightness.mag, self.brightness.band)
 
         source = Source(field=ImageSourceField(
             hdu, spectra={0: spectrum}
