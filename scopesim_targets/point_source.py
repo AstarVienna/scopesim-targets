@@ -7,6 +7,7 @@ from numbers import Number  # matches int, float and all the numpy scalars
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
+from synphot import SourceSpectrum
 
 from spextra import Spextrum
 from scopesim import Source
@@ -35,13 +36,20 @@ class PointSourceTarget(SpectrumTarget):
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        tbl = self._create_source_table()
-        tbl.add_row(self._to_table_row())
-
         source = Source(field=TableSourceField(
-            tbl, spectra={0: self.resolve_spectrum(self.spectrum)}
+            self.to_table(), spectra=self.source_spectra()
         ))
         return source
+
+    def to_table(self, local_frame=None) -> Table:
+        """Convert to table for Source conversion."""
+        tbl = self._create_source_table()
+        tbl.add_row(self._to_table_row(local_frame))
+        return tbl
+
+    def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
+        """Create spectra dict for Source conversion."""
+        return {start: self.resolve_spectrum(self.spectrum)}
 
     def _create_source_table(self) -> Table:
         tbl = Table(names=["x", "y", "ref", "weight"],
@@ -178,8 +186,32 @@ class Binary(PointSourceTarget):
             raise TypeError("contrast must be float or dimensionless Quantity")
         self._contrast = contrast
 
-    def to_source(self) -> Source:
-        """Convert to ScopeSim Source object."""
+    def _resolve_spectra_refs(
+        self,
+        spectra: Mapping[int, SourceSpectrum] | None,
+        refs: Sequence[int] | int | None,
+    ) -> tuple[dict[int, SourceSpectrum], tuple[int, ...]]:
+        match spectra, refs:
+            case None, None:
+                spectra = self.source_spectra()
+                ref_pri, ref_sec = 0, 1  # default spectra indices
+            case None, (_, _):
+                raise ValueError("refs sequence must have matching spectra")
+            case dict(spectra), None:
+                if len(spectra) == 2:
+                    ref_pri, ref_sec = spectra.keys()
+            case None, int(start):
+                spectra = self.source_spectra(start)
+                ref_pri, ref_sec = start, start + 1
+            case dict(spectra), (ref_pri, ref_sec):
+                if not {ref_pri, ref_sec}.issubset(spectra):
+                    raise ValueError("not all refs found in spectra")
+            case _:
+                raise TypeError("refs and spectra not understood")
+        return spectra, (ref_pri, ref_sec)
+
+    def to_table(self, local_frame=None, spectra=None, refs=None) -> Table:
+        """Convert to table for Source conversion."""
         tbl = self._create_source_table()
 
         # TODO: Add support for parent frame as in base class
@@ -199,22 +231,20 @@ class Binary(PointSourceTarget):
         x_arcsec_sec = secondary_position.lon.to_value(u.arcsec).round(6)
         y_arcsec_sec = secondary_position.lat.to_value(u.arcsec).round(6)
 
-        spectra = {
-            0: self.resolve_spectrum(self.primary_spectrum),
-            1: self.resolve_spectrum(self.secondary_spectrum),
-        }
+        spectra, (ref_pri, ref_sec) = self._resolve_spectra_refs(spectra, refs)
 
         primary = {
             "x": x_arcsec_pri,
             "y": y_arcsec_pri,
-            "weight": self._get_spectrum_scale(spectra[0], self.brightness),
-            "ref": 0,
+            "weight": self._get_spectrum_scale(
+                spectra[ref_pri], self.brightness),
+            "ref": ref_pri,
         }
         if hasattr(self, "_contrast"):
             secondary_weight = primary["weight"] / self.contrast
         elif hasattr(self, "_brightness_secondary"):
             secondary_weight = self._get_spectrum_scale(
-                spectra[1], self.brightness_secondary)
+                spectra[ref_sec], self.brightness_secondary)
         else:
             raise ValueError(
                 "Either contrast or secondary brightness must be given.")
@@ -223,16 +253,20 @@ class Binary(PointSourceTarget):
             "x": x_arcsec_sec,
             "y": y_arcsec_sec,
             "weight": secondary_weight,
-            "ref": 1,
+            "ref": ref_sec,
         }
 
         tbl.add_row(primary)
         tbl.add_row(secondary)
+        return tbl
 
-        source = Source(field=TableSourceField(
-            tbl, spectra=spectra
-        ))
-        return source
+    def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
+        """Create spectra dict for Source conversion."""
+        spectra = {
+            start: self.resolve_spectrum(self.primary_spectrum),
+            start + 1: self.resolve_spectrum(self.secondary_spectrum),
+        }
+        return spectra
 
 
 class Exoplanet(PointSourceTarget):
@@ -290,16 +324,15 @@ class PlanetarySystem(PointSourceTarget):
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        tbl = self._create_source_table()
-
         local_frame = self.position.skyoffset_frame()
-        spectra = {0: self.primary.resolve_spectrum(self.primary.spectrum)}
 
         # HACK: Should be able to pass this down
         self.primary.position = self.position
-        tbl.add_row(self.primary._to_table_row(local_frame))
 
-        for ref, component in enumerate(self.components, start=1):
+        table = self.primary.to_table(local_frame)
+        spectra = self.primary.source_spectra()
+
+        for ref, component in enumerate(self.components, start=max(spectra)+1):
             spectrum = component.resolve_spectrum(component.spectrum)
 
             component_position = component.resolve_offset(self.position)
@@ -310,14 +343,14 @@ class PlanetarySystem(PointSourceTarget):
             row = {
                 "x": x_arcsec,
                 "y": y_arcsec,
-                "weight": tbl[0]["weight"] / component.contrast,
+                "weight": table[0]["weight"] / component.contrast,
                 "ref": ref,
             }
 
-            tbl.add_row(row)
+            table.add_row(row)
             spectra[ref] = spectrum
 
-        source = Source(field=TableSourceField(tbl, spectra=spectra))
+        source = Source(field=TableSourceField(table, spectra=spectra))
         return source
 
 
