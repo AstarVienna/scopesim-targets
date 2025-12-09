@@ -210,6 +210,18 @@ class Binary(PointSourceTarget):
                 raise TypeError("refs and spectra not understood")
         return spectra, (ref_pri, ref_sec)
 
+    def _resolve_secondary_weight(
+        self,
+        secondary_spectrum: SourceSpectrum,
+        primary_weight: float,
+    ) -> float:
+        if hasattr(self, "_contrast"):
+            return primary_weight / self.contrast
+        if hasattr(self, "_brightness_secondary"):
+            return self._get_spectrum_scale(
+                secondary_spectrum, self.brightness_secondary)
+        raise ValueError("Either contrast or secondary brightness is needed.")
+
     def to_table(self, local_frame=None, spectra=None, refs=None) -> Table:
         """Convert to table for Source conversion."""
         tbl = self._create_source_table()
@@ -226,7 +238,7 @@ class Binary(PointSourceTarget):
         x_arcsec_pri = primary_position.lon.to_value(u.arcsec).round(6)
         y_arcsec_pri = primary_position.lat.to_value(u.arcsec).round(6)
 
-        secondary_position = self.resolve_offset(primary_position)
+        secondary_position = self.resolve_position(primary_position)
         secondary_position = secondary_position.transform_to(local_frame)
         x_arcsec_sec = secondary_position.lon.to_value(u.arcsec).round(6)
         y_arcsec_sec = secondary_position.lat.to_value(u.arcsec).round(6)
@@ -240,19 +252,12 @@ class Binary(PointSourceTarget):
                 spectra[ref_pri], self.brightness),
             "ref": ref_pri,
         }
-        if hasattr(self, "_contrast"):
-            secondary_weight = primary["weight"] / self.contrast
-        elif hasattr(self, "_brightness_secondary"):
-            secondary_weight = self._get_spectrum_scale(
-                spectra[ref_sec], self.brightness_secondary)
-        else:
-            raise ValueError(
-                "Either contrast or secondary brightness must be given.")
 
         secondary = {
             "x": x_arcsec_sec,
             "y": y_arcsec_sec,
-            "weight": secondary_weight,
+            "weight": self._resolve_secondary_weight(
+                spectra[ref_sec], primary["weight"]),
             "ref": ref_sec,
         }
 
