@@ -340,7 +340,7 @@ class PlanetarySystem(PointSourceTarget):
         for ref, component in enumerate(self.components, start=max(spectra)+1):
             spectrum = component.resolve_spectrum(component.spectrum)
 
-            component_position = component.resolve_offset(self.position)
+            component_position = component.resolve_position(self.position)
             component_position = component_position.transform_to(local_frame)
             x_arcsec = component_position.lon.to_value(u.arcsec).round(6)
             y_arcsec = component_position.lat.to_value(u.arcsec).round(6)

@@ -14,6 +14,7 @@ from scopesim_targets.point_source import (
     Star,
     Binary,
     Exoplanet,
+    PlanetarySystem,
 )
 
 
@@ -161,3 +162,18 @@ class TestExoplanet:
     def test_default_spectrum(self):
         tgt = Exoplanet(offset={"separation": 2*u.arcsec}, contrast=1e3)
         assert str(tgt.spectrum) == "Spextrum(irtf/Neptune)"
+
+
+class TestPlanetarySystem:
+    def test_to_source(self):
+        src = PlanetarySystem(
+            position=(0, 0),
+            primary=Star(
+                spectrum="A0V",
+                brightness=("V", 10),
+            ),
+            components=[
+                Exoplanet(contrast=1e5),
+            ],
+        ).to_source()
+        assert len(src.fields[0]) == 2  # primary and one planet
