@@ -80,25 +80,65 @@ class Target(metaclass=ABCMeta):
             "position_angle": Angle(offset.get("position_angle", 0*u.deg)),
         }
 
-    def resolve_offset(self, parent_position: SkyCoord | None = None):
+    def _resolve_offset(self, parent_position: SkyCoord | None = None):
+        if parent_position is None:
+            raise ValueError("If offset is used, parent_position is required.")
+
+        separation = self.offset["separation"]
+        if separation.unit.physical_type == "length":
+            # TODO: Consider moving this to custom equivalency between length
+            #       and angle and moving that higher up...
+            with u.set_enabled_equivalencies(u.dimensionless_angles()):
+                separation = separation / parent_position.distance
+                separation <<= u.arcsec
+        elif separation.unit.physical_type != "angle":
+            # TODO: Or move this to offset setter??
+            raise ValueError("separation must be length or angle")
+
+        position = parent_position.directional_offset_by(
+            self.offset["position_angle"],
+            separation,
+        )
+        return position
+
+    def resolve_position(self, parent_position: SkyCoord | None = None):
+        """
+        Resolve target position or offset.
+
+        This uses the following lookup order:
+        1. `self.position` set? -> use that
+        2. parent position present?
+          a. `self.offset` set? -> resolve offset to parent position
+          b. otherwise use parent position
+        3. `self.offset` set, but no parent position present -> Error
+        4. default to (0, 0)
+
+        Parameters
+        ----------
+        parent_position : SkyCoord | None, optional
+            Position of any parent target. If None (the default), `self.offset`
+            must not be set.
+
+        Raises
+        ------
+        ValueError
+            Raised if `self.offset` set, but `parent_position` is None.
+
+        Returns
+        -------
+        position : SkyCoord
+            Resolved position as SkyCoord object.
+
+        """
+        if hasattr(self, "_position") and self.position is not None:
+            # parent_position is ignored here...
+            return self.position
+
         if hasattr(self, "_offset") and self.offset is not None:
-            if parent_position is None:
-                raise ValueError("offset needs parent position to resolve")
+            return self._resolve_offset(parent_position)
 
-            separation = self.offset["separation"]
-            if separation.unit.physical_type == "length":
-                with u.set_enabled_equivalencies(u.dimensionless_angles()):
-                    separation = separation / parent_position.distance
-                    separation <<= u.arcsec
-            elif separation.unit.physical_type != "angle":
-                # TODO: Or move this to offset setter??
-                raise ValueError("separation must be length or angle")
-
-            position = parent_position.directional_offset_by(
-                self.offset["position_angle"],
-                separation,
-            )
-            return position
+        if parent_position is not None:
+            return parent_position
 
         # Default to (0, 0)
         return SkyCoord(0*u.deg, 0*u.deg)

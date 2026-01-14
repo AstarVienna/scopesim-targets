@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for point_source.py."""
 
+from unittest.mock import patch
+
 import pytest
 import yaml
 import numpy as np
@@ -12,6 +14,7 @@ from scopesim_targets.point_source import (
     Star,
     Binary,
     Exoplanet,
+    PlanetarySystem,
 )
 
 
@@ -40,6 +43,11 @@ class TestStar:
             brightness: ["R", 15 mag]
         """)
         assert isinstance(tgt, Star)
+
+
+@pytest.fixture
+def basic_binary():
+    return Binary(brightness=("R", 10))
 
 
 class TestBinary:
@@ -101,6 +109,42 @@ class TestBinary:
         with pytest.raises(ValueError):
             tgt.to_source()
 
+    @pytest.mark.parametrize(("spectra", "refs", "called"), (
+        (None, None, True),
+        (None, 42, True),
+        ({0: "foo", 1: "bar"}, None, False),
+        ({0: "foo", 1: "bar"}, [0, 1], False),
+    ))
+    def test_resolve_spectra_refs(self, basic_binary, spectra, refs, called):
+        start = refs if isinstance(refs, int) else 0
+        expected_spec = {start: "foo", start+1: "bar"}
+        expected_refs = (start, start+1)
+
+        with patch.object(basic_binary, "source_spectra") as mock_spectra:
+            mock_spectra.return_value = expected_spec
+
+            result = basic_binary._resolve_spectra_refs(spectra, refs)
+
+            if called:
+                if refs is not None:
+                    mock_spectra.assert_called_once_with(refs)
+                else:
+                    mock_spectra.assert_called_once()
+            else:
+                mock_spectra.assert_not_called()
+
+        assert result == (expected_spec, expected_refs)
+
+    @pytest.mark.parametrize(("spectra", "refs", "exc", "msg"), (
+        (None, [0, 1], ValueError, "refs sequence must have matching spectra"),
+        ({0: "foo"}, [0, 1], ValueError, "not all refs found in spectra"),
+        ("bogus", 42, TypeError, "refs and spectra not understood"),
+    ))
+    def test_resolve_spectra_refs_throws(
+            self, basic_binary, spectra, refs, exc, msg):
+        with pytest.raises(exc, match=msg):
+            basic_binary._resolve_spectra_refs(spectra, refs)
+
 
 class TestExoplanet:
     def test_basic(self):
@@ -118,3 +162,18 @@ class TestExoplanet:
     def test_default_spectrum(self):
         tgt = Exoplanet(offset={"separation": 2*u.arcsec}, contrast=1e3)
         assert str(tgt.spectrum) == "Spextrum(irtf/Neptune)"
+
+
+class TestPlanetarySystem:
+    def test_to_source(self):
+        src = PlanetarySystem(
+            position=(0, 0),
+            primary=Star(
+                spectrum="A0V",
+                brightness=("V", 10),
+            ),
+            components=[
+                Exoplanet(contrast=1e5),
+            ],
+        ).to_source()
+        assert len(src.fields[0]) == 2  # primary and one planet

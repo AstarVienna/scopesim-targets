@@ -80,19 +80,19 @@ class TestTarget:
             target_subcls.offset = "bogus"
 
     def test_default_offset(self, target_subcls):
-        assert target_subcls.resolve_offset() == SkyCoord(0, 0, unit=u.arcsec)
+        assert target_subcls.resolve_position() == SkyCoord(0, 0, unit=u.arcsec)
 
     def test_offset_needs_parent(self, target_subcls):
         target_subcls.offset = {"separation": 5*u.arcsec}
         with pytest.raises(ValueError):
-            target_subcls.resolve_offset()
+            target_subcls.resolve_position()
 
     def test_offset_length_with_distance(self, target_subcls):
         # target_subcls.position = {"distance": 10*u.pc}
         target_subcls.offset = {"separation": .1*u.arcsec}
         # TODO: Try to do without this...
         parent_position = SkyCoord(0*u.deg, 0*u.deg, 10*u.pc)
-        offset = target_subcls.resolve_offset(parent_position)
+        offset = target_subcls.resolve_position(parent_position)
         assert (offset.dec << u.arcsec).round(7) == .1*u.arcsec
 
 
