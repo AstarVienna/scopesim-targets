@@ -88,20 +88,20 @@ files = [
 
 [[package]]
 name = "astar-utils"
-version = "0.4.0"
+version = "0.5.0"
 description = "Contains commonly-used utilities for AstarVienna's projects."
 optional = false
-python-versions = "<3.14,>=3.10"
+python-versions = "<3.15,>=3.10"
 groups = ["main"]
 files = [
-    {file = "astar_utils-0.4.0-py3-none-any.whl", hash = "sha256:81b9614c548f36614709c2c490220e3e76ec9d823dec66ef357e7ffa6735e797"},
-    {file = "astar_utils-0.4.0.tar.gz", hash = "sha256:8effb9fd001f5d0980f7bf9ea3ebd69ef415f949741f78d0afbe0eafa25302c1"},
+    {file = "astar_utils-0.5.0-py3-none-any.whl", hash = "sha256:d3262076319423e65782a2635673a2380c1edbfd24ff4eb51c7498674f05ec5e"},
+    {file = "astar_utils-0.5.0.tar.gz", hash = "sha256:0d0759138f829b8720a62ff2065148d9a9e4e8405f7ef81aa4a0be51e92d251e"},
 ]
 
 [package.dependencies]
 colorama = ">=0.4.6,<1.0"
 more-itertools = ">=10.2.0,<11.0.0"
-pyyaml = ">=6.0.2,<7.0.0"
+pyyaml = ">=6.0.3,<7.0.0"
 
 [[package]]
 name = "astroid"
