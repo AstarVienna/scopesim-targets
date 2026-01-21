@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-scopesim = ["scopesim (>=0.11.0,<1.0.0)"]
+scopesim = ["scopesim (>=0.11.2,<1.0.0)"]
 
 
 [tool.poetry.group.dev.dependencies]
