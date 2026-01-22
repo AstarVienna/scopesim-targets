@@ -98,7 +98,7 @@ class TestTarget:
 
 
 class TestSpectrumTarget:
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_spectrum_synphot(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = SourceSpectrum.from_vega()
         assert isinstance(spectrum_target_subcls.spectrum, SourceSpectrum)
@@ -119,42 +119,42 @@ class TestSpectrumTarget:
         with pytest.raises(FileNotFoundError):
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_resolves_spectrum(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G2V"
         resolved = spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
         assert isinstance(resolved, SourceSpectrum)
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_resolves_spectrum_spex(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "spex:kurucz/g2v"
         resolved = spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
         assert isinstance(resolved, SourceSpectrum)
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_resolves_spectrum_throws(self, spectrum_target_subcls):
         spectrum_target_subcls.spectrum = "G5V"  # not in current default lib
         with pytest.raises(NotInLibraryError):
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_brightness_number(self, spectrum_target_subcls):
         spectrum_target_subcls.brightness = ["V", 10]
         assert spectrum_target_subcls.brightness.band == "V"
         assert spectrum_target_subcls.brightness.mag == 10*u.mag
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_brightness_qty(self, spectrum_target_subcls):
         spectrum_target_subcls.brightness = ["R", 12.5*u.mag]
         assert spectrum_target_subcls.brightness.band == "R"
         assert spectrum_target_subcls.brightness.mag == 12.5*u.mag
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_brightness_throws(self, spectrum_target_subcls):
         with pytest.raises(TypeError):
             spectrum_target_subcls.brightness = "bogus"
 
-    # @pytest.mark.webtest
+    @pytest.mark.webtest
     def test_brightness_throws_filter(self, spectrum_target_subcls):
         with pytest.raises(ValueError):
             spectrum_target_subcls.brightness = ["bogus", 10]
