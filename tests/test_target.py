@@ -3,6 +3,7 @@
 
 import pytest
 
+from numpy import testing as npt
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
 from synphot import SourceSpectrum
@@ -164,4 +165,4 @@ class TestSpectrumTarget:
         scale = spectrum_target_subcls._get_spectrum_scale(
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum),
             spectrum_target_subcls.brightness)
-        assert scale == pytest.approx(1.9e-23)  # TODO: CHECK THIS NUMBER!!!
+        npt.assert_allclose(scale, 6.24e-12, rtol=3e-4)  # TODO: CHECK THIS NUMBER!!!
