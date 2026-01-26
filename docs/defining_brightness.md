@@ -3,7 +3,7 @@ All targets with separate spectral information (basically anything except a full
 The only exception to this are user-supplied spectra, which are already flux-calibrated to the desired level.
 
 ## Nomenclature
-The name _brightness_ was chosen as the least ambigous of several rejected alternatives and because it matched with the ESO standard.
+The name _brightness_ was chosen as the least ambiguous of several rejected alternatives and because it matched with the ESO standard.
 It is not usually associated with any particular unit or physical type, but rather more of a general "how bright is my source".
 
 ### Rejected alternatives
