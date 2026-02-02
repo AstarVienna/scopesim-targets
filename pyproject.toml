@@ -1,6 +1,6 @@
 [project]
 name = "scopesim-targets"
-version = "0.1.2a1"
+version = "0.1.2a2"
 description = "Definition of on-sky targets for the ScopeSim telescope observation simulator."
 authors = [
     {name = "Fabian Haberhauer",email = "fabian.haberhauer@univie.ac.at"}
