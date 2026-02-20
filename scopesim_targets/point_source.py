@@ -2,6 +2,7 @@
 """Currently only ``Star`` and baseclass."""
 
 from collections.abc import Sequence, Mapping
+from itertools import count
 from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
@@ -9,6 +10,7 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from synphot import SourceSpectrum
 
+from astar_utils.guard_functions import guard_same_len
 from spextra import Spextrum
 from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
@@ -359,6 +361,91 @@ class PlanetarySystem(PointSourceTarget):
         return source
 
 
+# TODO: Common base class for multi-component targets
+class StarField(PointSourceTarget):
+    """Multiple Stars."""
+
+    def __init__(
+        self,
+        positions: Sequence[POSITION_TYPE] | None = None,
+        spectra: Sequence[SPECTRUM_TYPE] | None = None,
+        brightnesses: Sequence[BRIGHTNESS_TYPE] | None = None,
+        band: str | None = None,  # TODO: Proper typing
+    ) -> None:
+        guard_same_len(positions, spectra, brightnesses)
+        self.band = band
+        self.positions = positions
+        self.spectra = spectra
+        self.brightnesses = brightnesses
+
+    @property
+    def positions(self):
+        return self._positions
+
+    @positions.setter
+    def positions(self, positions: Sequence[POSITION_TYPE]):
+        try:
+            guard_same_len(positions, self.spectra, self.brightnesses)
+        except ValueError as err:
+            raise ValueError(
+                "Positions length doesn't match other attributes"
+            ) from err
+        self._positions = [
+            self._parse_position(position) for position in positions
+        ]
+
+    @property
+    def spectra(self):
+        return self._spectra
+
+    @spectra.setter
+    def spectra(self, spectra: Sequence[SPECTRUM_TYPE]):
+        try:
+            guard_same_len(self.positions, spectra, self.brightness)
+        except ValueError as err:
+            raise ValueError(
+                "Spectra length doesn't match other attributes"
+            ) from err
+        self._spectra = [self._parse_spectrum(spectrum) for spectrum in spectra]
+
+    @property
+    def brightnesses(self):
+        return self._brightnesses
+
+    @brightnesses.setter
+    def brightnesses(self, brightnesses: Sequence[BRIGHTNESS_TYPE]):
+        try:
+            guard_same_len(self.positions, self.spectra, brightnesses)
+        except ValueError as err:
+            raise ValueError(
+                "Brightnesses length doesn't match other attributes"
+            ) from err
+        self._brightnesses = [
+            self._parse_brightness(brightness)
+            if len(brightness) > 1
+            else self._parse_brightness((self.band, brightness))
+            for brightness in brightnesses
+        ]
+
+    def to_source(self) -> Source:
+        """Convert to ScopeSim Source object."""
+        # local_frame = self.position.skyoffset_frame()
+
+        spectra_ids = dict(zip(set(self.spectra), count()))
+        resolved_spectra = {
+            spectrum_id: self.resolve_spectrum(spectrum)
+            for spectrum, spectrum_id in spectra_ids.items()
+        }
+
+        spec_refs = [spectra_ids[spectrum] for spectrum in self.spectra]
+        weights = [
+            self._get_spectrum_scale(resolved_spectra[spectrum_id], brightness)
+            for spectrum_id, brightness in zip(spec_refs, self.brightnesses)
+        ]
+
+
+
+# TODO: Move these to __init__.py?
 register_target_constructor(Star)
 register_target_constructor(Binary)
 register_target_constructor(Exoplanet)

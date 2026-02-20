@@ -15,6 +15,7 @@ from scopesim_targets.point_source import (
     Binary,
     Exoplanet,
     PlanetarySystem,
+    StarField,
 )
 
 
@@ -177,3 +178,7 @@ class TestPlanetarySystem:
             ],
         ).to_source()
         assert len(src.fields[0]) == 2  # primary and one planet
+
+
+class TestStarField:
+    pass
