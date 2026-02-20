@@ -10,7 +10,7 @@ spectra:
   - A0V
   - M2III
   - K5V
-brightness:
+brightnesses:
   - ["V", 12 mag]
   - 15 mag
   - 8 mag

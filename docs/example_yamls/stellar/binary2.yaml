@@ -7,6 +7,6 @@ positions:
     ra: 2.002 deg
     dec: 1.01 deg
 spectra: [F0V, M5V]
-brightness:
+brightnesses:
   - ["R", 15 mag]
   - ["R", 20 mag]
