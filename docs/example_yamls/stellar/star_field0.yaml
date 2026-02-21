@@ -8,7 +8,7 @@ positions:
 spectra:
   - G2V
   - A0V
-  - M2III
+  - M0III
   - K5V
 brightnesses:
   - ["V", 12 mag]
