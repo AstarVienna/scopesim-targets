@@ -62,9 +62,10 @@ class PointSourceTarget(SpectrumTarget):
         tbl.meta["y_unit"] = "arcsec"
         return tbl
 
-    def _xy_arcsec_position(self, local_frame) -> tuple[float, float]:
+    @staticmethod
+    def _xy_arcsec_position(position, local_frame) -> tuple[float, float]:
         # Transform to local offset for ScopeSim
-        local_position = self.position.transform_to(local_frame)
+        local_position = position.transform_to(local_frame)
 
         # ra, dec turn into lon, lat in offset frame, .round(6) is microarcsec
         x_arcsec = local_position.lon.to_value(u.arcsec).round(6)
@@ -80,7 +81,7 @@ class PointSourceTarget(SpectrumTarget):
         # If not given from parent, position is always (0, 0) locally
         if local_frame is None:
             local_frame = self.position.skyoffset_frame()
-        x_arcsec, y_arcsec = self._xy_arcsec_position(local_frame)
+        x_arcsec, y_arcsec = self._xy_arcsec_position(self.position, local_frame)
 
         # If not given from parent, resolve now
         if spectrum is None:
@@ -236,14 +237,11 @@ class Binary(PointSourceTarget):
             primary_position = SkyCoord(0*u.deg, 0*u.deg)
 
         local_frame = primary_position.skyoffset_frame()
-        primary_position = primary_position.transform_to(local_frame)
-        x_arcsec_pri = primary_position.lon.to_value(u.arcsec).round(6)
-        y_arcsec_pri = primary_position.lat.to_value(u.arcsec).round(6)
-
-        secondary_position = self.resolve_position(primary_position)
-        secondary_position = secondary_position.transform_to(local_frame)
-        x_arcsec_sec = secondary_position.lon.to_value(u.arcsec).round(6)
-        y_arcsec_sec = secondary_position.lat.to_value(u.arcsec).round(6)
+        x_arcsec_pri, y_arcsec_pri = self._xy_arcsec_position(primary_position, local_frame)
+        x_arcsec_sec, y_arcsec_sec = self._xy_arcsec_position(
+            self.resolve_position(primary_position),
+            local_frame,
+        )
 
         spectra, (ref_pri, ref_sec) = self._resolve_spectra_refs(spectra, refs)
 
@@ -342,10 +340,10 @@ class PlanetarySystem(PointSourceTarget):
         for ref, component in enumerate(self.components, start=max(spectra)+1):
             spectrum = component.resolve_spectrum(component.spectrum)
 
-            component_position = component.resolve_position(self.position)
-            component_position = component_position.transform_to(local_frame)
-            x_arcsec = component_position.lon.to_value(u.arcsec).round(6)
-            y_arcsec = component_position.lat.to_value(u.arcsec).round(6)
+            x_arcsec, y_arcsec = self._xy_arcsec_position(
+                component.resolve_position(self.position),
+                local_frame,
+            )
 
             row = {
                 "x": x_arcsec,
