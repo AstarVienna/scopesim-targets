@@ -44,21 +44,25 @@ class Target(metaclass=ABCMeta):
 
     @position.setter
     def position(self, position: POSITION_TYPE):
+        self._position = self._parse_position(position)
+
+    @staticmethod
+    def _parse_position(position: POSITION_TYPE) -> SkyCoord:
         match position:
             case SkyCoord():
-                self._position = position
+                return position
             case {"x": x_arcsec, "y": y_arcsec, "distance": distance}:
                 x_arcsec <<= u.arcsec
                 y_arcsec <<= u.arcsec
                 distance = Distance(distance)
-                self._position = SkyCoord(x_arcsec, y_arcsec, distance)
+                return SkyCoord(x_arcsec, y_arcsec, distance)
             case (x_arcsec, y_arcsec) | {"x": x_arcsec, "y": y_arcsec}:
                 x_arcsec <<= u.arcsec
                 y_arcsec <<= u.arcsec
-                self._position = SkyCoord(x_arcsec, y_arcsec)
+                return SkyCoord(x_arcsec, y_arcsec)
             case {"distance": distance}:
                 # Assume target in center of field
-                self._position = SkyCoord(0*u.deg, 0*u.deg, Distance(distance))
+                return SkyCoord(0*u.deg, 0*u.deg, Distance(distance))
             case _:
                 raise TypeError("Unkown postition format.")
 

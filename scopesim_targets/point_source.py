@@ -2,6 +2,7 @@
 """Currently only ``Star`` and baseclass."""
 
 from collections.abc import Sequence, Mapping
+from itertools import count
 from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
@@ -9,6 +10,7 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from synphot import SourceSpectrum
 
+from astar_utils.guard_functions import guard_same_len
 from spextra import Spextrum
 from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
@@ -60,9 +62,10 @@ class PointSourceTarget(SpectrumTarget):
         tbl.meta["y_unit"] = "arcsec"
         return tbl
 
-    def _xy_arcsec_position(self, local_frame) -> tuple[float, float]:
+    @staticmethod
+    def _xy_arcsec_position(position, local_frame) -> tuple[float, float]:
         # Transform to local offset for ScopeSim
-        local_position = self.position.transform_to(local_frame)
+        local_position = position.transform_to(local_frame)
 
         # ra, dec turn into lon, lat in offset frame, .round(6) is microarcsec
         x_arcsec = local_position.lon.to_value(u.arcsec).round(6)
@@ -78,7 +81,7 @@ class PointSourceTarget(SpectrumTarget):
         # If not given from parent, position is always (0, 0) locally
         if local_frame is None:
             local_frame = self.position.skyoffset_frame()
-        x_arcsec, y_arcsec = self._xy_arcsec_position(local_frame)
+        x_arcsec, y_arcsec = self._xy_arcsec_position(self.position, local_frame)
 
         # If not given from parent, resolve now
         if spectrum is None:
@@ -234,14 +237,11 @@ class Binary(PointSourceTarget):
             primary_position = SkyCoord(0*u.deg, 0*u.deg)
 
         local_frame = primary_position.skyoffset_frame()
-        primary_position = primary_position.transform_to(local_frame)
-        x_arcsec_pri = primary_position.lon.to_value(u.arcsec).round(6)
-        y_arcsec_pri = primary_position.lat.to_value(u.arcsec).round(6)
-
-        secondary_position = self.resolve_position(primary_position)
-        secondary_position = secondary_position.transform_to(local_frame)
-        x_arcsec_sec = secondary_position.lon.to_value(u.arcsec).round(6)
-        y_arcsec_sec = secondary_position.lat.to_value(u.arcsec).round(6)
+        x_arcsec_pri, y_arcsec_pri = self._xy_arcsec_position(primary_position, local_frame)
+        x_arcsec_sec, y_arcsec_sec = self._xy_arcsec_position(
+            self.resolve_position(primary_position),
+            local_frame,
+        )
 
         spectra, (ref_pri, ref_sec) = self._resolve_spectra_refs(spectra, refs)
 
@@ -340,10 +340,10 @@ class PlanetarySystem(PointSourceTarget):
         for ref, component in enumerate(self.components, start=max(spectra)+1):
             spectrum = component.resolve_spectrum(component.spectrum)
 
-            component_position = component.resolve_position(self.position)
-            component_position = component_position.transform_to(local_frame)
-            x_arcsec = component_position.lon.to_value(u.arcsec).round(6)
-            y_arcsec = component_position.lat.to_value(u.arcsec).round(6)
+            x_arcsec, y_arcsec = self._xy_arcsec_position(
+                component.resolve_position(self.position),
+                local_frame,
+            )
 
             row = {
                 "x": x_arcsec,
@@ -359,7 +359,127 @@ class PlanetarySystem(PointSourceTarget):
         return source
 
 
+# TODO: Common base class for multi-component targets
+class StarField(PointSourceTarget):
+    """Multiple Stars."""
+
+    def __init__(
+        self,
+        positions: Sequence[POSITION_TYPE] | None = None,
+        spectra: Sequence[SPECTRUM_TYPE] | None = None,
+        brightnesses: Sequence[BRIGHTNESS_TYPE] | None = None,
+        band: str | None = None,  # TODO: Proper typing
+    ) -> None:
+        guard_same_len(positions, spectra, brightnesses)
+        self.band = band
+        self.positions = positions
+        self.spectra = spectra
+        self.brightnesses = brightnesses
+
+    @property
+    def positions(self):
+        try:
+            return self._positions
+        except AttributeError:
+            pass  # return None
+
+    @positions.setter
+    def positions(self, positions: Sequence[POSITION_TYPE]):
+        try:
+            guard_same_len(positions, self.spectra, self.brightnesses)
+        except ValueError as err:
+            raise ValueError(
+                "Positions length doesn't match other attributes"
+            ) from err
+        self._positions = [
+            self._parse_position(position) for position in positions
+        ]
+
+    @property
+    def spectra(self):
+        try:
+            return self._spectra
+        except AttributeError:
+            pass  # return None
+
+    @spectra.setter
+    def spectra(self, spectra: Sequence[SPECTRUM_TYPE]):
+        try:
+            guard_same_len(self.positions, spectra, self.brightnesses)
+        except ValueError as err:
+            raise ValueError(
+                "Spectra length doesn't match other attributes"
+            ) from err
+        self._spectra = [self._parse_spectrum(spectrum) for spectrum in spectra]
+
+    @property
+    def brightnesses(self):
+        try:
+            return self._brightnesses
+        except AttributeError:
+            pass  # return None
+
+    @brightnesses.setter
+    def brightnesses(self, brightnesses: Sequence[BRIGHTNESS_TYPE]):
+        try:
+            guard_same_len(self.positions, self.spectra, brightnesses)
+        except ValueError as err:
+            raise ValueError(
+                "Brightnesses length doesn't match other attributes"
+            ) from err
+        self._brightnesses = [
+            self._parse_brightness(brightness)
+            if isinstance(brightness, Sequence) and len(brightness) > 1
+            else self._parse_brightness((self.band, brightness))
+            for brightness in brightnesses
+        ]
+
+    def to_source(self) -> Source:
+        """Convert to ScopeSim Source object."""
+        # TODO: Consider top-level center coords (somehow...)
+        local_frame = SkyCoord(0*u.deg, 0*u.deg).skyoffset_frame()
+
+        xy_positions = []
+        for position in self.positions:
+            xy_positions.append(self._xy_arcsec_position(position, local_frame))
+
+        from more_itertools import unzip
+        x_positions, y_positions = unzip(xy_positions)
+
+        spectra_ids = dict(zip(set(self.spectra), count()))
+        resolved_spectra = {
+            spectrum_id: self.resolve_spectrum(spectrum)
+            for spectrum, spectrum_id in spectra_ids.items()
+        }
+
+        spec_refs = [spectra_ids[spectrum] for spectrum in self.spectra]
+        weights = [
+            self._get_spectrum_scale(resolved_spectra[spectrum_id], brightness)
+            for spectrum_id, brightness in zip(spec_refs, self.brightnesses)
+        ]
+
+        # TODO: Refactor...
+        table = Table(
+            names=["x", "y", "ref", "weight"],
+            units={"x": u.arcsec, "y": u.arcsec},
+            data={
+                "x": list(x_positions),
+                "y": list(y_positions),
+                "ref": spec_refs,
+                "weight": weights,
+            },
+        )
+
+        # TODO: Figure out if those are really needed
+        table.meta["x_unit"] = "arcsec"
+        table.meta["y_unit"] = "arcsec"
+
+        return Source(field=TableSourceField(table, spectra=resolved_spectra))
+
+
+# TODO: Move these to __init__.py?
 register_target_constructor(Star)
 register_target_constructor(Binary)
 register_target_constructor(Exoplanet)
 register_target_constructor(PlanetarySystem)
+register_target_constructor(StarField)
