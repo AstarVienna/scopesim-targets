@@ -192,3 +192,17 @@ class TestStarField:
         assert len(src.fields[0].spectra) == 2  # two A0V stars share spectrum
         np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0, 1])
         np.testing.assert_array_equal(src.fields[0].field["y"], [0, 1, 0])
+
+    def test_len_mismatch_throws(self):
+        tgt = StarField(
+            positions=[(0, 0), (0, 1), (1, 0)],
+            spectra=["A0V", "G2V", "A0V"],
+            brightnesses=[5*u.mag, 8*u.mag, 6*u.mag],
+            band="R",
+        )
+        with pytest.raises(ValueError):
+            tgt.positions = [(0, 0), (1, 1)]
+        with pytest.raises(ValueError):
+            tgt.spectra = ["A0V", "G2V"]
+        with pytest.raises(ValueError):
+            tgt.brightnesses = [5*u.mag, 6*u.mag]
