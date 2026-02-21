@@ -8,7 +8,7 @@ primary:
   !Binary
   offset:
     separation: .1 AU
-  spectra: [G0V, M5V]
+  spectra: [G0V, M2V]
   brightness: ["R", 15 mag]  # Primary
   contrast: 1.0e+2
 components:
