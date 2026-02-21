@@ -429,14 +429,22 @@ class StarField(PointSourceTarget):
             ) from err
         self._brightnesses = [
             self._parse_brightness(brightness)
-            if len(brightness) > 1
+            if isinstance(brightness, Sequence) and len(brightness) > 1
             else self._parse_brightness((self.band, brightness))
             for brightness in brightnesses
         ]
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        # local_frame = self.position.skyoffset_frame()
+        # TODO: Consider top-level center coords (somehow...)
+        local_frame = SkyCoord(0*u.deg, 0*u.deg).skyoffset_frame()
+
+        xy_positions = []
+        for position in self.positions:
+            xy_positions.append(self._xy_arcsec_position(position, local_frame))
+
+        from more_itertools import unzip
+        x_positions, y_positions = unzip(xy_positions)
 
         spectra_ids = dict(zip(set(self.spectra), count()))
         resolved_spectra = {
@@ -450,6 +458,23 @@ class StarField(PointSourceTarget):
             for spectrum_id, brightness in zip(spec_refs, self.brightnesses)
         ]
 
+        # TODO: Refactor...
+        table = Table(
+            names=["x", "y", "ref", "weight"],
+            units={"x": u.arcsec, "y": u.arcsec},
+            data={
+                "x": list(x_positions),
+                "y": list(y_positions),
+                "ref": spec_refs,
+                "weight": weights,
+            },
+        )
+
+        # TODO: Figure out if those are really needed
+        table.meta["x_unit"] = "arcsec"
+        table.meta["y_unit"] = "arcsec"
+
+        return Source(field=TableSourceField(table, spectra=resolved_spectra))
 
 
 # TODO: Move these to __init__.py?
@@ -457,3 +482,4 @@ register_target_constructor(Star)
 register_target_constructor(Binary)
 register_target_constructor(Exoplanet)
 register_target_constructor(PlanetarySystem)
+register_target_constructor(StarField)
