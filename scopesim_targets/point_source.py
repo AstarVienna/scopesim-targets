@@ -378,7 +378,10 @@ class StarField(PointSourceTarget):
 
     @property
     def positions(self):
-        return self._positions
+        try:
+            return self._positions
+        except AttributeError:
+            pass  # return None
 
     @positions.setter
     def positions(self, positions: Sequence[POSITION_TYPE]):
@@ -394,12 +397,15 @@ class StarField(PointSourceTarget):
 
     @property
     def spectra(self):
-        return self._spectra
+        try:
+            return self._spectra
+        except AttributeError:
+            pass  # return None
 
     @spectra.setter
     def spectra(self, spectra: Sequence[SPECTRUM_TYPE]):
         try:
-            guard_same_len(self.positions, spectra, self.brightness)
+            guard_same_len(self.positions, spectra, self.brightnesses)
         except ValueError as err:
             raise ValueError(
                 "Spectra length doesn't match other attributes"
@@ -408,7 +414,10 @@ class StarField(PointSourceTarget):
 
     @property
     def brightnesses(self):
-        return self._brightnesses
+        try:
+            return self._brightnesses
+        except AttributeError:
+            pass  # return None
 
     @brightnesses.setter
     def brightnesses(self, brightnesses: Sequence[BRIGHTNESS_TYPE]):
