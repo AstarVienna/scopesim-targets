@@ -181,4 +181,14 @@ class TestPlanetarySystem:
 
 
 class TestStarField:
-    pass
+    def test_to_source(self):
+        src = StarField(
+            positions=[(0, 0), (0, 1), (1, 0)],
+            spectra=["A0V", "G2V", "A0V"],
+            brightnesses=[5*u.mag, 8*u.mag, 6*u.mag],
+            band="R",
+        ).to_source()
+        assert len(src.fields[0]) == 3
+        assert len(src.fields[0].spectra) == 2  # two A0V stars share spectrum
+        np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0, 1])
+        np.testing.assert_array_equal(src.fields[0].field["y"], [0, 1, 0])
