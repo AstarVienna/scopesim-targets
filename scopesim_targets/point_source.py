@@ -17,7 +17,6 @@ from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
-from .yaml_constructors import register_target_constructor
 from .target import Brightness, SpectrumTarget
 
 
@@ -553,11 +552,3 @@ class StarField(PointSourceTarget):
         table.meta["y_unit"] = "arcsec"
 
         return Source(field=TableSourceField(table, spectra=resolved_spectra))
-
-
-# TODO: Move these to __init__.py?
-register_target_constructor(Star)
-register_target_constructor(Binary)
-register_target_constructor(Exoplanet)
-register_target_constructor(PlanetarySystem)
-register_target_constructor(StarField)

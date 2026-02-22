@@ -8,11 +8,7 @@ import yaml
 from astropy import units as u
 
 from scopesim_targets.target import Target
-
-# HACK: Temporary to ensue proper import and yaml tag registring
-from scopesim_targets.point_source import *
-from scopesim_targets.extended_source import *
-
+from scopesim_targets.extended_source import ParametrizedTarget
 
 EXAMPLE_YAML_PATH = Path(__package__).parent / "docs"
 
