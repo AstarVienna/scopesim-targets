@@ -101,6 +101,20 @@ class TestBinary:
         np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
         np.testing.assert_array_equal(src.fields[0].field["y"], [0, 5])
 
+    @pytest.mark.xfail
+    def test_distance_separtation_resolves(self):
+        # 1 AU at 1 pc should produce 1 arcsec separation
+        tgt = Binary(
+            brightness=("R", 10),
+            contrast=100.,
+            spectra=["A0V", "M2V"],
+            position={"distance": 1*u.pc},
+            offset={"separation": 1*u.AU},
+        )
+        src = tgt.to_source()
+        np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
+        np.testing.assert_array_equal(src.fields[0].field["y"], [0, 1])
+
     def test_throws_if_no_contras_or_secondary_brightness(self):
         tgt = Binary(
             spectra=("A0V", "M2V"),
