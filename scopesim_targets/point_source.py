@@ -5,6 +5,7 @@ from collections.abc import Sequence, Mapping
 from itertools import count
 from numbers import Number  # matches int, float and all the numpy scalars
 
+from more_itertools import unzip
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
@@ -117,6 +118,9 @@ class Star(PointSourceTarget):
 class Binary(PointSourceTarget):
     """Binary star.
 
+    .. todo:: Fix offset definition via distance and physical separation, see
+        :issue:`107` (also applies to other target subclasses).
+
     Examples
     --------
     >>> tgt = Binary(
@@ -206,14 +210,15 @@ class Binary(PointSourceTarget):
 
         Brightness of the secondary can also be specified via the
         `brightness_secondary` attribute instead, which supports magnitudes.
+
+        .. todo:: Add support for dimensionless Quantity and other numerical
+            types in setter type check.
         """
         return self._contrast
 
     @contrast.setter
     def contrast(self, contrast: float):
         if not isinstance(contrast, float):
-            # TODO: Also check for dimensionless Quantity here, and also numpy
-            #       float-ish types. Int should also be fine...
             raise TypeError("contrast must be float or dimensionless Quantity")
         self._contrast = contrast
 
@@ -421,6 +426,9 @@ class PlanetarySystem(PointSourceTarget):
 class StarField(PointSourceTarget):
     """Multiple Stars.
 
+    .. todo:: Add support for defining a common (field center) position to which
+        the individual positions are interpreted als relative to.
+
     Examples
     --------
     >>> tgt = StarField(
@@ -508,14 +516,12 @@ class StarField(PointSourceTarget):
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        # TODO: Consider top-level center coords (somehow...)
         local_frame = SkyCoord(0*u.deg, 0*u.deg).skyoffset_frame()
 
         xy_positions = []
         for position in self.positions:
             xy_positions.append(self._xy_arcsec_position(position, local_frame))
 
-        from more_itertools import unzip
         x_positions, y_positions = unzip(xy_positions)
 
         spectra_ids = dict(zip(set(self.spectra), count()))
