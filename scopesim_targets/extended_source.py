@@ -15,7 +15,6 @@ from scopesim import Source
 from scopesim.source.source_fields import ImageSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
-from .yaml_constructors import register_target_constructor
 from .target import SpectrumTarget
 
 
@@ -133,7 +132,3 @@ class Disk(ParametrizedTarget):
             self._model.bounding_box = None  # TODO: Revisit this
         else:
             raise ValueError("radius and width are currently required")
-
-
-register_target_constructor(Sersic)
-register_target_constructor(Disk)
