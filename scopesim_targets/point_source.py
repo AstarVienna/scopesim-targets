@@ -303,7 +303,16 @@ class Binary(PointSourceTarget):
 
 
 class Exoplanet(PointSourceTarget):
-    """Exoplanet (point source) with default spectrum of Neptune."""
+    """Exoplanet (point source) with default spectrum of Neptune.
+
+    Examples
+    --------
+    >>> tgt = Exoplanet(
+    ...     position=(0, 0),
+    ...     brightness=("V", 20),
+    ... )
+
+    """
 
     def __init__(
         self,
@@ -340,7 +349,28 @@ class Exoplanet(PointSourceTarget):
 
 # TODO: Common base class for multi-component targets
 class PlanetarySystem(PointSourceTarget):
-    """Planetary system with primary and components."""
+    """Planetary system with primary and components.
+
+    Examples
+    --------
+    >>> tgt = PlanetarySystem(
+    ...     position=(0, 0),
+    ...     primary=Star(
+    ...         spectrum="A0V",
+    ...         brightness=("R", 15),
+    ...     ),
+    ...     components=[
+    ...         Exoplanet(
+    ...             contrast=1e5,
+    ...             offset={"separation": 0.5*u.arcsec},
+    ...         ),
+    ...     ],
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#exoplanetary>`_.
+
+    """
 
     def __init__(
         self,
