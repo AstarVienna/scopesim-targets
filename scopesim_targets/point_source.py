@@ -98,11 +98,39 @@ class PointSourceTarget(SpectrumTarget):
 
 
 class Star(PointSourceTarget):
-    """A single star."""
+    """A single star.
+
+    Examples
+    --------
+    >>> tgt = Star(
+    ...     position=(2, 3),  # [arcsec] from center of FOV
+    ...     spectrum="A0V",
+    ...     brightness=("R", 15),  # [mag]
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#single-stars>`_.
+
+    """
 
 
 class Binary(PointSourceTarget):
-    """Binary star."""
+    """Binary star.
+
+    Examples
+    --------
+    >>> tgt = Binary(
+    ...     position={"distance": 100*u.pc},
+    ...     spectra=("F0V", "M2V"),
+    ...     brightness=("R", 10),
+    ...     contrast=100.,  # F_pri / F_sec
+    ...     offset={"separation": .1*u.AU},
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#binaries>`_.
+
+    """
 
     def __init__(
         self,
@@ -275,7 +303,16 @@ class Binary(PointSourceTarget):
 
 
 class Exoplanet(PointSourceTarget):
-    """Exoplanet (point source) with default spectrum of Neptune."""
+    """Exoplanet (point source) with default spectrum of Neptune.
+
+    Examples
+    --------
+    >>> tgt = Exoplanet(
+    ...     position=(0, 0),
+    ...     brightness=("V", 20),
+    ... )
+
+    """
 
     def __init__(
         self,
@@ -312,7 +349,28 @@ class Exoplanet(PointSourceTarget):
 
 # TODO: Common base class for multi-component targets
 class PlanetarySystem(PointSourceTarget):
-    """Planetary system with primary and components."""
+    """Planetary system with primary and components.
+
+    Examples
+    --------
+    >>> tgt = PlanetarySystem(
+    ...     position=(0, 0),
+    ...     primary=Star(
+    ...         spectrum="A0V",
+    ...         brightness=("R", 15),
+    ...     ),
+    ...     components=[
+    ...         Exoplanet(
+    ...             contrast=1e5,
+    ...             offset={"separation": 0.5*u.arcsec},
+    ...         ),
+    ...     ],
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#exoplanetary>`_.
+
+    """
 
     def __init__(
         self,
@@ -361,7 +419,21 @@ class PlanetarySystem(PointSourceTarget):
 
 # TODO: Common base class for multi-component targets
 class StarField(PointSourceTarget):
-    """Multiple Stars."""
+    """Multiple Stars.
+
+    Examples
+    --------
+    >>> tgt = StarField(
+    ...     positions=[(0, 0), (1, 1)],  # [arcsec] offset from center
+    ...     spectra=["A0V", "G2V"],
+    ...     brightnesses=[10, 15],  # [mag]
+    ...     band="V",  # default for brightnesses
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#star-field>`_.
+
+    """
 
     def __init__(
         self,
