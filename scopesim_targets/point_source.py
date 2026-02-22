@@ -115,7 +115,22 @@ class Star(PointSourceTarget):
 
 
 class Binary(PointSourceTarget):
-    """Binary star."""
+    """Binary star.
+
+    Examples
+    --------
+    >>> tgt = Binary(
+    ...     position={"distance": 100*u.pc},
+    ...     spectra=("F0V", "M2V"),
+    ...     brightness=("R", 10),
+    ...     contrast=100.,  # F_pri / F_sec
+    ...     offset={"separation": .1*u.AU},
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#binaries>`_.
+
+    """
 
     def __init__(
         self,
