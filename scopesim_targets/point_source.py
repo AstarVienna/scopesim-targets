@@ -419,7 +419,21 @@ class PlanetarySystem(PointSourceTarget):
 
 # TODO: Common base class for multi-component targets
 class StarField(PointSourceTarget):
-    """Multiple Stars."""
+    """Multiple Stars.
+
+    Examples
+    --------
+    >>> tgt = StarField(
+    ...     positions=[(0, 0), (1, 1)],  # [arcsec] offset from center
+    ...     spectra=["A0V", "G2V"],
+    ...     brightnesses=[10, 15],  # [mag]
+    ...     band="V",  # default for brightnesses
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#star-field>`_.
+
+    """
 
     def __init__(
         self,
