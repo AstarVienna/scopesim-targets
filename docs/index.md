@@ -67,4 +67,5 @@ yaml_syntax.md
 
    scopesim_targets.target
    scopesim_targets.point_source
+   scopesim_targets.extended_source
 ```
