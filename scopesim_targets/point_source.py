@@ -98,7 +98,20 @@ class PointSourceTarget(SpectrumTarget):
 
 
 class Star(PointSourceTarget):
-    """A single star."""
+    """A single star.
+
+    Examples
+    --------
+    >>> tgt = Star(
+    ...     position=(2, 3),  # [arcsec] from center of FOV
+    ...     spectrum="A0V",
+    ...     brightness=("R", 15),  # [mag]
+    ... )
+
+    For more examples, see also
+    `the YAML syntax <../yaml_syntax.html#single-stars>`_.
+
+    """
 
 
 class Binary(PointSourceTarget):
