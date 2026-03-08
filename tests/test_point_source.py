@@ -101,7 +101,6 @@ class TestBinary:
         np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
         np.testing.assert_array_equal(src.fields[0].field["y"], [0, 5])
 
-    @pytest.mark.xfail
     def test_distance_separtation_resolves(self):
         # 1 AU at 1 pc should produce 1 arcsec separation
         tgt = Binary(

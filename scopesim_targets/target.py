@@ -134,12 +134,14 @@ class Target(metaclass=ABCMeta):
             Resolved position as SkyCoord object.
 
         """
+        # Offset needs to be checked first in order for binary with separation
+        # to be resolved correctly, otherwise would just return primary.
+        if hasattr(self, "_offset") and self.offset is not None:
+            return self._resolve_offset(parent_position)
+
         if hasattr(self, "_position") and self.position is not None:
             # parent_position is ignored here...
             return self.position
-
-        if hasattr(self, "_offset") and self.offset is not None:
-            return self._resolve_offset(parent_position)
 
         if parent_position is not None:
             return parent_position
