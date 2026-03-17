@@ -161,3 +161,4 @@ cython_debug/
 
 # ScopeSim stuff
 inst_pkgs/
+TEMP_*.py
