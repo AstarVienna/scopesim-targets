@@ -1,16 +1,110 @@
 # -*- coding: utf-8 -*-
-"""Stellar parameters lookup table and related functionality."""
+"""Stellar parameters lookup table and related functionality.
 
-from typing import Any
-from collections.abc import Iterable
+.. todo:: Expand docstring.
+
+"""
+
+from typing import Any, NamedTuple
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 
 from more_itertools import always_iterable
-from astropy.table import Table, QTable
+import numpy as np
+from astropy import units as u
+from astropy.table import Table, QTable, Row, join
 from astropy.utils.masked import combine_masks
 
 from astar_utils import SpectralType
 
 from .data_utils import fetch_data_file
+
+
+_temperature_type = u.get_physical_type("temperature")
+TeffRange = NamedTuple("TeffRange", [
+    ("min", u.Quantity[_temperature_type] | float),
+    ("max", u.Quantity[_temperature_type] | float),
+])
+
+
+@dataclass(order=True, frozen=True, slots=True)
+class SpectralClass:
+    """Container for main (OBAFGKM) spectral class Teff range and color.
+
+    .. todo:: Add source for colors (Wiki).
+
+    .. todo:: Expand docstring, document creator methods.
+
+    """
+
+    name: str = field(compare=False)
+    teff_range: TeffRange
+    color: str = field(compare=False)
+
+    colors = {
+        "O": "#92B5FF",
+        "B": "#A2C0FF",
+        "A": "#D5E0FF",
+        "F": "#F9F5FF",
+        "G": "#FFEDE3",
+        "K": "#FFDAB5",
+        "M": "#FFB56C",
+    }
+    _fallback_color = "#EAEAF2"  # default seaborn plot background
+
+    @property
+    def midpoint(self):
+        """Return mean of `teff_range`."""
+        return sum(self.teff_range) / 2
+
+    def is_in_range(self, teff_range):
+        """Return True if overlap, False otherwise."""
+        try:
+            teff_range_overlap(self.teff_range, teff_range)
+        except ValueError:
+            return False
+        return True
+
+    @classmethod
+    def from_parameters_table(cls, params_table, name: str):
+        teffs = params_table.loc[f"{name}0.0":f"{name}9.9"]["teff"]
+        teff_range = TeffRange(teffs.min().value, teffs.max().value)
+        return cls(name, teff_range, cls.colors.get(name, cls._fallback_color))
+
+    @classmethod
+    def from_table_row(cls, row: Row):
+        name = str(row["spectral_class"])
+        teff_range = TeffRange(row["teff_min"].value, row["teff_max"].value)
+        return cls(name, teff_range, cls.colors.get(name, cls._fallback_color))
+
+
+def teff_range_overlap(*teff_ranges) -> TeffRange:
+    """
+    Return overlap between `teff_ranges`.
+
+    Parameters
+    ----------
+    *teff_ranges : TeffRange
+        Two or more TeffRange tuples.
+
+    Raises
+    ------
+    ValueError
+        Raised if no overlap is found, i.e. the ranges are disjoint.
+
+    Returns
+    -------
+    overlap_range : TeffRange
+        Overlapping TeffRange.
+
+    """
+    overlap_range = TeffRange(
+        max(teff_range.min for teff_range in teff_ranges),
+        min(teff_range.max for teff_range in teff_ranges),
+    )
+    if overlap_range.min >= overlap_range.max:
+        raise ValueError("no overlap between Teff ranges")
+    return overlap_range
 
 
 class StellarParameters:
@@ -130,3 +224,34 @@ class StellarParameters:
         mamajek_redux.add_index("spectral_type", unique=True)
 
         return mamajek_redux
+
+    def group_spectral_classes(self) -> Iterator[SpectralClass]:
+        """
+        Generate SpectralClass objects from grouped parameters table.
+
+        Min and max of Teff are calculated for each spectral class (OBAFGKMLTY)
+        and then any "gaps" between classes are closed by the average between
+        the previous min and next max.
+
+        Yields
+        ------
+        spectral_class : SpectralClass
+            Instances of SpectralClass created from each row.
+
+        """
+        tbl = self.table[["spectral_type", "teff"]]
+        tbl["spectral_class"] = [
+            SpectralType(spt.spectral_class) for spt in tbl["spectral_type"]
+        ]
+        by_spec_cls = tbl.group_by("spectral_class")
+        minmax = join(
+            by_spec_cls["spectral_class", "teff"].groups.aggregate(np.min),
+            by_spec_cls["spectral_class", "teff"].groups.aggregate(np.max),
+            keys="spectral_class",
+            table_names=["min", "max"],
+        )
+        midpoints = (minmax["teff_max"][1:] + minmax["teff_min"][:-1]) / 2.0
+        minmax["teff_max"][1:] = midpoints
+        minmax["teff_min"][:-1] = midpoints
+        for row in minmax:
+            yield SpectralClass.from_table_row(row)
