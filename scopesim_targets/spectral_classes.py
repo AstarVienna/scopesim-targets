@@ -13,7 +13,7 @@ from .data_utils import fetch_data_file
 
 
 class StellarParameters:
-    """Wrapper for Mamajek table of spectral types and physical parameters.
+    """Wrapper for Mamajek table of spectral types and physical parameters [1]_.
 
     Acts as a static lookup table for the parameters listed below.
 
@@ -53,6 +53,26 @@ class StellarParameters:
     ----------
     table : astropy.table.QTable
         Processed parameter lookup table.
+
+    Notes
+    -----
+    Originally taken from:
+    https://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt,
+    first version published in [1]_, later version (but not the current one)
+    published in [2]_.
+
+    References
+    ----------
+    .. [1] Pecaut, Mark J. and Mamajek, Eric E., "Intrinsic Colors,
+       Temperatures, and Bolometric Corrections of Pre-main-sequence Stars",
+       The Astrophysical Journal Supplement, Volume 208, Issue 1,
+       article id. 9, 22 pp., 2013; 2013ApJS..208....9P
+
+    .. [2] Pecaut, Mark J., Mamajek, Eric E., and Bubar, Eric J., "A Revised Age
+       for Upper Scorpius and the Star Formation History among the F-type
+       Members of the Scorpius-Centaurus OB Association", The Astrophysical
+       Journal, Volume 746, Issue 2, article id. 154, 22 pp., 2012;
+       2012ApJ...746..154P
 
     """
 
