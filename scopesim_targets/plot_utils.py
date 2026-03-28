@@ -6,16 +6,16 @@ Example usage
 >>> from matplotlib import pyplot as plt
 >>> from scopesim_targets.spectral_classes import StellarParameters
 >>> from scopesim_targets.plot_utils import spec_classes_axis
-
+>>>
 >>> x = np.linspace(2000, 15000, 400)
 >>> y = np.sin(x / 1000)  # just to have something to plot...
-
+>>>
 >>> plt.style.use("seaborn-v0_8")  # -talk, -poster, -paper
 >>> fig, ax = plt.subplots()
 >>> ax.invert_xaxis()  # HRD-style
 >>> ax.plot(x, y)  # doctest: +ELLIPSIS
 [<matplotlib.lines.Line2D object at ...>]
-
+>>>
 >>> stp = StellarParameters()
 >>> spclss = list(stp.group_spectral_classes())
 >>> spec_classes_axis(ax, spclss)
