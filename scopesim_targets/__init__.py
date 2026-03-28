@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Importing this package has the side-effect of adding custom YAML tags."""
 
+from pathlib import Path
+
 from .target import Target
 from . import point_source
 from . import extended_source
@@ -10,6 +12,9 @@ from .yaml_constructors import (
     register_coord,
     register_target_constructor,
 )
+
+PKG_DIR = Path(__file__).parent
+DATA_DIR = PKG_DIR.parent / "data"
 
 # Run YAML registrations
 register_qty()
