@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Mar 18 16:09:31 2026
-
-@author: ghost
-"""
+"""Unit tests for spectral_classes.py."""
 
 import pytest
 

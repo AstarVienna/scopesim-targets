@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""TBA."""
+"""Stellar parameters lookup table and related functionality."""
 
+from typing import Any
 from collections.abc import Iterable
 
 from more_itertools import always_iterable
@@ -88,7 +89,7 @@ class StellarParameters:
             tbl = tbl[~combined_mask]
         self.table = tbl
 
-        self._closest_indices = {}
+        self._closest_indices: dict[str, Any] = {}
 
     def _load_stellar_parameters_table(self) -> QTable:
         """
