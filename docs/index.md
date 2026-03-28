@@ -71,4 +71,6 @@ yaml_syntax.md
    scopesim_targets.spectral_classes
    scopesim_targets.yaml_constructors
    scopesim_targets.data_utils
+   scopesim_targets.plot_utils
+   scopesim_targets.typing_utils
 ```
