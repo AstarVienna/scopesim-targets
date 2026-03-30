@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 
 from more_itertools import always_iterable
 import numpy as np
+from numpy.lib.recfunctions import structured_to_unstructured
+from scipy.interpolate import PchipInterpolator, CubicSpline
 from astropy import units as u
 from astropy.table import Table, QTable, Row, join
-from astropy.utils.masked import combine_masks
+from astropy.utils.masked import Masked, combine_masks
 
 from astar_utils import SpectralType
 
@@ -182,6 +184,10 @@ class StellarParameters:
             )
             tbl = tbl[~combined_mask]
         self.table = tbl
+        self._col_units = {
+            colname: column.unit
+            for colname, column in self.table.columns.items()
+        }
 
         self._closest_indices: dict[str, Any] = {}
 
@@ -255,3 +261,207 @@ class StellarParameters:
         minmax["teff_min"][:-1] = midpoints
         for row in minmax:
             yield SpectralClass.from_table_row(row)
+
+    @staticmethod
+    def _calc_halfways_points(array: np.array) -> np.ndarray:
+        return array[:-1] / 2.0 + array[1:] / 2.0
+
+    def _sort_col_idx(self, colname: str) -> tuple[np.ndarray, np.ndarray]:
+        # Implementation adapted from (deprecated) scipy.interpolate.interp1d
+        sorted_indices = self.table[colname].argsort(kind="mergesort")
+        sorted_column = self.table[colname][sorted_indices]
+        return sorted_indices, sorted_column
+
+    def _setup_closest(self, colname: str) -> tuple[np.ndarray, np.ndarray]:
+        sorted_indices, sorted_column = self._sort_col_idx(colname)
+        return sorted_indices, self._calc_halfways_points(sorted_column)
+
+    def _setup_closest_spectral_type(self) -> tuple[np.ndarray, np.ndarray]:
+        sorted_indices, sorted_spectypes = self._sort_col_idx("spectral_type")
+        sorted_spectypes = np.array([
+            spectype.to_array() for spectype in sorted_spectypes
+        ])
+        return sorted_indices, self._calc_halfways_points(sorted_spectypes)
+
+    def _get_closest_indices(self, colname: str):
+        if (closest_indices := self._closest_indices.get(colname)) is not None:
+            return closest_indices
+        # Only actually run setup method if not already set
+        closest_indices = self._closest_indices.setdefault(
+            colname, self._setup_closest(colname)
+        )
+        return closest_indices
+
+    def _search_halfways_points(
+        self,
+        search_value: np.ndarray,
+        colname: str,
+    ) -> np.ndarray:
+        _, halfway_points = self._get_closest_indices(colname)
+        # Implementation adapted from (deprecated) scipy.interpolate.interp1d
+        closest_indices = halfway_points.searchsorted(search_value, side="left")
+        # Clip to avoid matching masked values
+        if hasattr(halfway_points, "mask"):  # e.g. mass
+            max_good_index = len(halfway_points) - halfway_points.mask.sum()
+        else:  # e.g. teff
+            max_good_index = len(halfway_points)
+        return closest_indices.clip(0, max_good_index).astype(np.intp)
+
+    @u.quantity_input
+    def closest_mass(self, mass: u.Quantity[u.solMass]) -> QTable | Row:
+        """
+        Lookup the row(s) closest to a given stellar mass(es).
+
+        Parameters
+        ----------
+        mass : u.Quantity[u.solMass]
+            Stellar mass(es) to look up. Can be scalar or array, but must be
+            quantity convertible to mass.
+
+        Returns
+        -------
+        closest_rows : QTable | Row
+            Resulting row(s). If `mass` was provided as an array, the result
+            will be a QTable, subset of the original table. If `mass` is scalar,
+            the result will be a single Row object.
+
+        """
+        sorted_indices, _ = self._get_closest_indices("mass")
+        closest_sorted_indices = self._search_halfways_points(mass, "mass")
+        actual_indices = sorted_indices[closest_sorted_indices]
+        return self.table[actual_indices]
+
+    @u.quantity_input
+    def closest_teff(self, teff: u.Quantity[u.K]) -> QTable | Row:
+        """
+        Lookup the row(s) closest to a given effective temperature(s).
+
+        Parameters
+        ----------
+        teff : u.Quantity[u.K]
+            Stellar effective temperature(s) to look up. Can be scalar or array,
+            but must be quantity convertible to temperature.
+
+        Returns
+        -------
+        closest_rows : QTable | Row
+            Resulting row(s). If `teff` was provided as an array, the result
+            will be a QTable, subset of the original table. If `teff` is scalar,
+            the result will be a single Row object.
+
+        """
+        sorted_indices, _ = self._get_closest_indices("teff")
+        closest_sorted_indices = self._search_halfways_points(teff, "teff")
+        actual_indices = sorted_indices[closest_sorted_indices]
+        return self.table[actual_indices]
+
+    def closest_spectral_type(self, spectral_type: SpectralType) -> QTable | Row:
+        # TODO: docstring
+        # TODO: chk if this can be simplified considering that original table is
+        #       sorted by spectral type (if it really is)
+        # TODO: chk if this can be simplified because spectral_type is an index
+        # TODO: maybe use KDTree instead?? Then could also reduce the refactoring again...
+        sorted_indices, halfway_points = self._get_closest_indices("spectral_type")
+        # HACK: This [0] only works because everything here is main sequence...
+        closest_sorted_indices = halfway_points[:, 0].searchsorted(spectral_type.to_array()[0], side="left")
+        max_good_index = len(halfway_points)
+        closest_sorted_indices = closest_sorted_indices.clip(0, max_good_index).astype(np.intp)
+        actual_indices = sorted_indices[closest_sorted_indices]
+        return self.table[actual_indices]
+
+    def _get_remaining_colnames(self, colname: str) -> list[str]:
+        """Return all column names other than `colname` and "spectral_type"."""
+        exclude = {"spectral_type", colname}
+        return [col for col in self.table.colnames if col not in exclude]
+
+    def interpolate(self, colname: str, values: u.Quantity, extrapolate_phot: bool = False) -> QTable:
+        # TODO: store interpolator
+        # TODO: optionally supply output colnames (set intersection stuff)
+        if self.table[colname].unit != values.unit:
+            raise ValueError("units in values must match column")
+
+        columns = self._get_remaining_colnames(colname)
+        sorted_indices, sorted_column = self._sort_col_idx(colname)
+
+        if hasattr(sorted_column, "mask"):
+            sorted_indices = sorted_indices[~sorted_column.mask]
+            sorted_column = sorted_column[~sorted_column.mask]
+
+        # TODO: find a more efficient way to do this
+        mask = structured_to_unstructured(
+            self.table.mask[columns][sorted_indices].as_array()
+        )
+        expanded = Masked(np.repeat(sorted_column[:, None], 10, 1), mask=mask)
+        mins = expanded.min(axis=0)
+        maxs = expanded.max(axis=0)
+        output_mask = (
+            (np.repeat(values[:, None], 10, 1) < mins) |
+            (np.repeat(values[:, None], 10, 1) > maxs)
+        )
+
+        splines = []
+        for colname in columns:
+            col = self.table[colname][sorted_indices]
+            colmask = col.mask if hasattr(col, "mask") else np.zeros_like(col.value).astype(bool)
+            if colname in ("mass", "teff", "radius"):
+                spline = PchipInterpolator(sorted_column[~colmask], col[~colmask], extrapolate=False)
+            else:
+                spline = CubicSpline(sorted_column[~colmask], col[~colmask], extrapolate=True)
+                # see https://docs.scipy.org/doc/scipy/tutorial/interpolate/extrapolation_examples.html#cubicspline-extend-the-boundary-conditions
+                # TODO: Find a better way to extrapolate that works with the (otherwise much better) PchipInterpolator, get rid of that function.
+                _add_boundary_knots(spline)
+            splines.append(spline)
+
+        # output_data = spline(mass).round(3)  # HACK: use table format instead?
+        # Output has to be Quantity BEFORE masking, otherwise QTable doesn't
+        # return quantities upon [colname]...
+        # TODO: See if this can be done more efficiently and/or robust, as the
+        #       current implementation relies on correct column order...
+        masked_output = [
+            Masked(
+                splines[i](values).round(3)*self._col_units.get(col),
+                mask=(
+                    output_mask[:, i]
+                    if col in ("mass", "teff", "radius")
+                    or not extrapolate_phot
+                    else None
+                ),
+            ) for i, col in enumerate(columns)
+        ]
+        result = QTable(
+            names=columns,
+            data=masked_output,
+        )
+        return result
+
+
+def _add_boundary_knots(spline):
+    """
+    Add knots infinitesimally to the left and right.
+
+    Additional intervals are added to have zero 2nd and 3rd derivatives,
+    and to maintain the first derivative from whatever boundary condition
+    was selected. The spline is modified in place.
+
+    Taken directly from https://docs.scipy.org/doc/scipy/tutorial/interpolate/extrapolation_examples.html#cubicspline-extend-the-boundary-conditions
+    """
+    # determine the slope at the left edge
+    leftx = spline.x[0]
+    lefty = spline(leftx)
+    leftslope = spline(leftx, nu=1)
+
+    # add a new breakpoint just to the left and use the
+    # known slope to construct the PPoly coefficients.
+    leftxnext = np.nextafter(leftx, leftx - 1)
+    leftynext = lefty + leftslope*(leftxnext - leftx)
+    leftcoeffs = np.array([0, 0, leftslope, leftynext])
+    spline.extend(leftcoeffs[..., None], np.r_[leftxnext])
+
+    # repeat with additional knots to the right
+    rightx = spline.x[-1]
+    righty = spline(rightx)
+    rightslope = spline(rightx, nu=1)
+    rightxnext = np.nextafter(rightx, rightx + 1)
+    rightynext = righty + rightslope * (rightxnext - rightx)
+    rightcoeffs = np.array([0, 0, rightslope, rightynext])
+    spline.extend(rightcoeffs[..., None], np.r_[rightxnext])
