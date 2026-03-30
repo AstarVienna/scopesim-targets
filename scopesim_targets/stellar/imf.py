@@ -43,7 +43,9 @@ params = {
     "a0": .3, "a1": 1.3, "a2": 2.3, "a3": 2.7,
     "m0": .01, "m1": .08, "m2": .5, "m3": 1.,
 }
-kroupa = BrokenPowerlaw(name="Kroupa02", a=0.005, b=150, momtype=0)(**params)
+kroupa_gen = BrokenPowerlaw(name="Kroupa02", a=0.005, b=150, momtype=0)
+kroupa = kroupa_gen(**params)
 
 # Chabrier 2001
-chabrier = LogNormal(name="Chabrier01", a=0.005, b=150)(mo=716.4, delta=3.3, beta=.25)
+chabrier_gen = LogNormal(name="Chabrier01", a=0.005, b=150)
+chabrier = chabrier_gen(mo=716.4, delta=3.3, beta=.25)
