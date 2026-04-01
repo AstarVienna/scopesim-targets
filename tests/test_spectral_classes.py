@@ -2,6 +2,9 @@
 """Unit tests for spectral_classes.py."""
 
 import pytest
+import numpy as np
+from astropy import units as u
+from astropy.table import QTable, Row
 
 from scopesim_targets.spectral_classes import (
     StellarParameters,
@@ -18,6 +21,36 @@ class TestStellarParameters:
     def test_required_cols(self, req, tbl_len):
         stp = StellarParameters(req)
         assert len(stp.table) == tbl_len
+
+    @pytest.mark.parametrize(
+        ("mass", "desired"),
+        (
+            (1 * u.solMass, "G2V"),
+            ([1, 1] * u.solMass, ("G2V", "G2V")),
+            ([1e4, 1e-4] * u.solMass, ("O3V", "L2V")),
+        ),
+    )
+    def test_closest_mass(self, mass, desired):
+        stp = StellarParameters()
+        closest = stp.closest_mass(mass)
+        np.testing.assert_array_equal(closest["spectral_type"], desired)
+        assert isinstance(closest, (Row, QTable))
+
+    @pytest.mark.parametrize(
+        ("teff", "desired"),
+        (
+            (5778 * u.K, "G2V"),
+            ([5778, 5778] * u.K, ("G2V", "G2V")),
+            ([45000, 2000] * u.K, ("O3V", "L2V")),
+        ),
+    )
+    def test_closest_teff(self, teff, desired):
+        stp = StellarParameters()
+        closest = stp.closest_teff(teff)
+        np.testing.assert_array_equal(closest["spectral_type"], desired)
+        assert isinstance(closest, (Row, QTable))
+
+# TODO: Add tests to check if wrong or missing input units throw
 
 
 class TestTeffRange:
