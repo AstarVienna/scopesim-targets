@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from more_itertools import always_iterable
 import numpy as np
 from numpy.lib.recfunctions import structured_to_unstructured
+from scipy.spatial import KDTree
 from scipy.interpolate import PchipInterpolator, CubicSpline
 from astropy import units as u
 from astropy.table import Table, QTable, Row, join
@@ -134,10 +135,10 @@ class StellarParameters:
 
     .. todo:: Consider including the remaining columns if useful.
 
-    .. todo:: Add interpolation functions for main columns.
-
     .. todo:: Add information about ``.loc[]``-style indexing with spectral
        types, including examples.
+
+    .. todo:: Document interpolation and lookup methods with examples.
 
     Parameters
     ----------
@@ -190,6 +191,7 @@ class StellarParameters:
         }
 
         self._closest_indices: dict[str, Any] = {}
+        self._lookup_tree: KDTree | None = None
 
     def _load_stellar_parameters_table(self) -> QTable:
         """
@@ -276,13 +278,6 @@ class StellarParameters:
         sorted_indices, sorted_column = self._sort_col_idx(colname)
         return sorted_indices, self._calc_halfways_points(sorted_column)
 
-    def _setup_closest_spectral_type(self) -> tuple[np.ndarray, np.ndarray]:
-        sorted_indices, sorted_spectypes = self._sort_col_idx("spectral_type")
-        sorted_spectypes = np.array([
-            spectype.to_array() for spectype in sorted_spectypes
-        ])
-        return sorted_indices, self._calc_halfways_points(sorted_spectypes)
-
     def _get_closest_indices(self, colname: str):
         if (closest_indices := self._closest_indices.get(colname)) is not None:
             return closest_indices
@@ -355,19 +350,34 @@ class StellarParameters:
         actual_indices = sorted_indices[closest_sorted_indices]
         return self.table[actual_indices]
 
+    def _make_lookup_tree(self) -> KDTree:
+        # HACK: Using the existing index should ensure things are already
+        #       sorted, but this is untested because we initially sort this
+        #       column anyway. Whatever the case, there must be a better way to
+        #       get the values out than this double indexing...
+        spectral_type_array = [
+            spectype.to_array() for spectype in
+            self.table.indices["spectral_type"].data.data["spectral_type"]
+        ]
+        return KDTree(spectral_type_array)
+
     def closest_spectral_type(self, spectral_type: SpectralType) -> QTable | Row:
         # TODO: docstring
-        # TODO: chk if this can be simplified considering that original table is
-        #       sorted by spectral type (if it really is)
-        # TODO: chk if this can be simplified because spectral_type is an index
-        # TODO: maybe use KDTree instead?? Then could also reduce the refactoring again...
-        sorted_indices, halfway_points = self._get_closest_indices("spectral_type")
-        # HACK: This [0] only works because everything here is main sequence...
-        closest_sorted_indices = halfway_points[:, 0].searchsorted(spectral_type.to_array()[0], side="left")
-        max_good_index = len(halfway_points)
-        closest_sorted_indices = closest_sorted_indices.clip(0, max_good_index).astype(np.intp)
-        actual_indices = sorted_indices[closest_sorted_indices]
-        return self.table[actual_indices]
+        if self._lookup_tree is None:
+            self._lookup_tree = self._make_lookup_tree()
+
+        # Deal with both scalar and array inputs
+        spectral_type_array = [
+            SpectralType(spectype).to_array() for spectype in
+            always_iterable(spectral_type)
+        ]
+        closest_spectypes = [
+            SpectralType.from_array(spectype) for spectype in
+            np.atleast_2d(self._lookup_tree.data[
+                self._lookup_tree.query(spectral_type_array)[1]
+            ])
+        ]
+        return self.table.loc[closest_spectypes]
 
     def _get_remaining_colnames(self, colname: str) -> list[str]:
         """Return all column names other than `colname` and "spectral_type"."""
