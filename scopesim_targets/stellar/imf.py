@@ -43,8 +43,10 @@ class LogNormal(rv_continuous):
 #       by other laws as well. Find out more about upper and lower bounds
 #       of each IMF before that!! Can those ("support") be set in the "freezing"
 #       step afterwards??
-kroupa_gen = BrokenPowerlaw(name="Kroupa02", a=0.005, b=150, momtype=0)
-chabrier_gen = LogNormal(name="Chabrier01", a=0.005, b=150)
+# Note: Upper and lower limits set to the extrem ends of the mass range found in
+#       the Mamajek stellar parameters lookup table.
+kroupa_gen = BrokenPowerlaw(name="Kroupa02", a=0.01, b=60, momtype=0)
+chabrier_gen = LogNormal(name="Chabrier01", a=0.01, b=60)
 
 
 def load_default_imfs() -> dict[str, rv_continuous]:
