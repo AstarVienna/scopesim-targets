@@ -74,4 +74,8 @@ filterwarnings = [
 ]
 
 [tool.coverage.report]
-omit = ["tests/*", "docs/*"]
+omit = [
+    "tests/*",
+    "docs/*",
+    "scopesim_targets/stellar/*",  # TODO: Remove this once we have enough tests there!
+]
