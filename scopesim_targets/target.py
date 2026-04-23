@@ -88,21 +88,16 @@ class Target(metaclass=ABCMeta):
         if parent_position is None:
             raise ValueError("If offset is used, parent_position is required.")
 
-        separation = self.offset["separation"]
-        if separation.unit.physical_type == "length":
-            # TODO: Consider moving this to custom equivalency between length
-            #       and angle and moving that higher up...
-            with u.set_enabled_equivalencies(u.dimensionless_angles()):
-                separation = separation / parent_position.distance
-                separation <<= u.arcsec
-        elif separation.unit.physical_type != "angle":
-            # TODO: Or move this to offset setter??
-            raise ValueError("separation must be length or angle")
+        try:
+            with length_angle_context(parent_position.distance):
+                position = parent_position.directional_offset_by(
+                    self.offset["position_angle"],
+                    self.offset["separation"] << u.arcsec,
+                )
+        except u.UnitConversionError as err:
+            # TODO: Catch wrong units in offset setter??
+            raise ValueError("separation must be length or angle") from err
 
-        position = parent_position.directional_offset_by(
-            self.offset["position_angle"],
-            separation,
-        )
         return position
 
     def resolve_position(self, parent_position: SkyCoord | None = None):
@@ -257,3 +252,29 @@ class SpectrumTarget(Target):
         real_flux = Observation(spectrum, band).effstim(flux_unit=PHOTLAM)
 
         return float(ref_flux / real_flux)
+
+
+# TODO: docstring
+def length_angle_equivalency(distance: Distance | u.Quantity[u.pc]):
+    length_unit = u.AU
+    angle_unit = u.arcsec
+
+    distance = Distance(distance)
+
+    def length_to_angle(length):
+        # Equivalency functions receive and return only values
+        angle = (length << length_unit) / distance
+        return angle.to_value(angle_unit, u.dimensionless_angles())
+
+    def angle_to_length(angle):
+        # Equivalency functions receive and return only values
+        length = (angle << angle_unit) * distance
+        return length.to_value(length_unit, u.dimensionless_angles())
+
+    return [(length_unit, angle_unit, length_to_angle, angle_to_length)]
+
+
+# TODO: docstring
+# TODO: better name??
+def length_angle_context(distance: Distance | u.Quantity[u.pc]):
+    return u.set_enabled_equivalencies(length_angle_equivalency(distance))

@@ -266,7 +266,7 @@ class Binary(PointSourceTarget):
             primary_position = self.position
         except AttributeError:
             # Default to (0, 0)
-            primary_position = SkyCoord(0*u.deg, 0*u.deg)
+            primary_position = SkyCoord(0*u.deg, 0*u.deg, 10*u.pc)
 
         local_frame = primary_position.skyoffset_frame()
         x_arcsec_pri, y_arcsec_pri = self._xy_arcsec_position(primary_position, local_frame)

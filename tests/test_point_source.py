@@ -114,7 +114,7 @@ class TestBinary:
         np.testing.assert_array_equal(src.fields[0].field["x"], [0, 0])
         np.testing.assert_array_equal(src.fields[0].field["y"], [0, 1])
 
-    def test_throws_if_no_contras_or_secondary_brightness(self):
+    def test_throws_if_no_contrast_or_secondary_brightness(self):
         tgt = Binary(
             spectra=("A0V", "M2V"),
             brightness=("R", 10),
