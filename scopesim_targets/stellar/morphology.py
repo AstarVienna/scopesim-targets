@@ -7,6 +7,8 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
 from astropy.modeling.functional_models import KingProjectedAnalytic1D
 
+from ..target import length_angle_context
+
 
 class Morphology:
     """Base class for stellar cluster morphologies."""
@@ -55,12 +57,13 @@ class KingProfileMorphology(SphericallySymmetricalMorphology):
     def sample(self, parent_position: SkyCoord) -> SkyCoord:
         # HACK: This is WET with PointSourceTarget.....
         local_frame = parent_position.skyoffset_frame()
-        local_positions = parent_position.directional_offset_by(
-            self._sample_phi(),
-            self._sample_radius(),
-        ).transform_to(local_frame)
-        x_arcsec = local_positions.lon.to_value(u.arcsec).round(6)
-        y_arcsec = local_positions.lat.to_value(u.arcsec).round(6)
+        with length_angle_context(parent_position.distance):
+            local_positions = parent_position.directional_offset_by(
+                self._sample_phi(),
+                self._sample_radius(),
+            ).transform_to(local_frame)
+            x_arcsec = local_positions.lon.to_value(u.arcsec).round(6)
+            y_arcsec = local_positions.lat.to_value(u.arcsec).round(6)
         return x_arcsec, y_arcsec
 
     def to_source_columns(self, parent_position):
