@@ -71,3 +71,18 @@ def load_default_imfs() -> dict[str, rv_continuous]:
 
 
 DEFAULT_IMFS = load_default_imfs()
+
+
+# Chabrier03:
+# log m (<=1) = A  * exp(-(log m - log mc)**2 / (2*sigma**2))
+# Single: down to log m ~ -.9 = m ~ .12
+#   A = 0.158 +.051 -.046 (log Msun)-1 pc-3
+#   mc = .079 +.021 -.016
+#   sigma = .69 +.05 -.01
+# System:
+#   A = .086 (log Msun)-1 pc-3
+#   mc = .22
+#   sigma = .57
+# log m (>1) = A * m**-x
+#   A = 4.43e-2 (log Msun)-1 pc-3
+#   x = 1.3 +/- 0.3
