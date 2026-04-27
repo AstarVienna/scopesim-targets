@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """TBA."""
 
+from typing import Any
+from collections.abc import Mapping
+
 from astropy import units as u
 from astropy.table import Table
 
@@ -28,10 +31,16 @@ class ZeroAgeCluster(Cluster):
     def __init__(
         self,
         position: POSITION_TYPE,
-        population: ZeroAgePopulation,
-        morphology: Morphology,
+        pop_class: ZeroAgePopulation,
+        pop_params: Mapping[str, Any],
+        morph_class: Morphology,
+        morph_params: Mapping[str, Any],
     ) -> None:
-        super().__init__(position, population, morphology)
+        super().__init__(
+            position,
+            pop_class(**pop_params),
+            morph_class(**morph_params),
+        )
 
     def to_source(self):
         src_coldict, spectra = self.population.to_source_columns(self.position)
