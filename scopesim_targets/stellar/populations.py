@@ -5,12 +5,13 @@ import numpy as np
 from scipy.stats import rv_continuous
 from scipy.stats.sampling import NumericalInversePolynomial
 from astropy import units as u
-from astropy.coordinates import Distance
+from matplotlib import axes
 
 from astar_utils import SpectralType
 from spextra import SpecLibrary, Spextrum
 
 from ..spectral_classes import StellarParameters
+from ..plot_utils import figure_factory
 from .imf import DEFAULT_IMFS
 
 # Split at 1.07 Msol, F/G border
@@ -168,3 +169,36 @@ class IMFPopulation(ZeroAgePopulation):
         weights = (delta_mag.value * delta_mag.unit()).physical
 
         return {"ref": specref, "weight": weights}, spectra
+
+    def plot(
+        self,
+        samples: np.ndarray | None = None,  # array-like?
+        mass_range: tuple[float, float] = (0., np.inf),
+        ax: axes.Axes | None = None,
+        label: str = "IMF",
+    ) -> axes.Axes:
+        min_mass, max_mass = sorted(mass_range)
+        min_mass = max(min_mass, self.imf.a)
+        max_mass = min(max_mass, self.imf.b)
+
+        x = np.geomspace(min_mass + 1e-5, max_mass)
+        bins = np.geomspace(min_mass, max_mass, 30)
+
+        if ax is None:
+            _, ax = figure_factory()
+
+        if samples is None:
+            samples = self.sample_imf()
+
+        ax.loglog(x, self.imf.pdf(x), label=label)
+        ax.hist(samples.value, bins=bins, density=True, alpha=.8)
+        ax.axvline(samples.mean().value, ls="--")
+
+        if (breakpoints := [
+            value for key, value in self.imf.kwds.items() if key.startswith("m")
+        ]):
+            for value in breakpoints:
+                ax.axvline(value, ls=":", c="k")
+        ax.legend()
+
+        return ax

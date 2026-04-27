@@ -5,14 +5,13 @@ Example usage
 -------------
 >>> from matplotlib import pyplot as plt
 >>> from scopesim_targets.spectral_classes import StellarParameters
->>> from scopesim_targets.plot_utils import spec_classes_axis
+>>> from scopesim_targets.plot_utils import spec_classes_axis, figure_factory_hrd
 >>>
 >>> x = np.linspace(2000, 15000, 400)
 >>> y = np.sin(x / 1000)  # just to have something to plot...
 >>>
 >>> plt.style.use("seaborn-v0_8")  # -talk, -poster, -paper
->>> fig, ax = plt.subplots()
->>> ax.invert_xaxis()  # HRD-style
+>>> fig, ax = figure_factory_hrd()
 >>> ax.plot(x, y)  # doctest: +ELLIPSIS
 [<matplotlib.lines.Line2D object at ...>]
 >>>
@@ -26,6 +25,8 @@ from collections.abc import Generator
 
 import numpy as np
 from matplotlib import axes
+from matplotlib import pyplot as plt
+from matplotlib.patches import Circle
 
 from .spectral_classes import SpectralClass, TeffRange, teff_range_overlap
 
@@ -49,6 +50,19 @@ SPEC_TICK_PARAMS = {
         "width": 1.0,
     },
 }
+
+
+def figure_factory(nrows=1, ncols=1, **kwargs):
+    """Generate default fig and ax, to easily modify later."""
+    fig, ax = plt.subplots(nrows, ncols, **kwargs)
+    return fig, ax
+
+
+def figure_factory_hrd(**kwargs):
+    """Wrap ``figure_factory`` for single axes with inverted x-axis."""
+    fig, ax = figure_factory(**kwargs)
+    ax.invert_xaxis()  # HRD-style
+    return fig, ax
 
 
 def _shade_spec_classes(ax: axes.Axes, spec_classes: list[SpectralClass]):
@@ -125,3 +139,27 @@ def spec_classes_axis(
             which=which,
             **SPEC_TICK_PARAMS[which]
         )
+
+
+def draw_circle(
+    ax,
+    center: tuple[float, float] = (0, 0),
+    radius: float = 10,
+    edgecolor: str | None = None,
+    facecolor: str | None = None,
+    linewidth: float | None = None,
+    linestyle: str | None = None,
+    fill: bool = False,
+    label: str = "",
+) -> None:
+    """Draw a circle in data coordinates."""
+    ax.add_artist(Circle(
+        center,
+        radius,
+        edgecolor=edgecolor,
+        facecolor=facecolor,
+        linewidth=linewidth,
+        linestyle=linestyle,
+        fill=fill,
+        label=label,
+    ))
