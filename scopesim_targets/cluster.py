@@ -1,5 +1,18 @@
 # -*- coding: utf-8 -*-
-"""TBA."""
+"""Star cluster targets.
+
+Current issues
+--------------
+
+The current `ZeroAgeCluster` class is limited to point sources (or rather stars
+really), but that isn't reflected in its name. The parent class `Cluster`
+technically isn't limited to point sources.
+
+There is now some overlap in concept between `Cluster` and `StarField`, as both
+deal with an internal list of point sources. This should be resolved in the
+future. In the context of this, there's also the not-yet-implemented
+`TargetCollection` mentioned in the example YAMLs.
+"""
 
 from typing import Any
 from collections.abc import Mapping
@@ -11,11 +24,13 @@ from scopesim import Source
 from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE
+from .target import Target
 from .stellar.populations import Population, ZeroAgePopulation
 from .stellar.morphology import Morphology
 
 
-class Cluster:
+# This look very much like a dataclass now...
+class Cluster(Target):
     def __init__(
         self,
         position: POSITION_TYPE,
@@ -51,9 +66,4 @@ class ZeroAgeCluster(Cluster):
             names=["x", "y", "ref", "weight"],
             units={"x": u.arcsec, "y": u.arcsec},
         )
-        src = Source(field=TableSourceField(tbl, spectra=spectra))
-        return src
-
-# StarField.from_??(Population, Morphology) ???
-
-# but where to put parameters such that variable??
+        return Source(field=TableSourceField(tbl, spectra=spectra))
