@@ -131,7 +131,7 @@ class IMFPopulation(ZeroAgePopulation):
             absmag = row["M_J"]
             if absmag.mask:
                 continue
-            spectra[spectype] = spec.scale_to_magnitude(absmag, "J")
+            spectra[spectype] = spec.scale_to_magnitude(absmag.unmasked, "J")
         for row in stp_low_mass.table:
             spectype = row["spectral_type"]
             libname = DEFAULT_LIBRARY_LOW_MASS.name
@@ -143,7 +143,7 @@ class IMFPopulation(ZeroAgePopulation):
             absmag = row["M_J"]
             if absmag.mask:
                 continue
-            spectra[spectype] = spec.scale_to_magnitude(absmag, "J")
+            spectra[spectype] = spec.scale_to_magnitude(absmag.unmasked, "J")
 
         # HACK: While specref still only works with ints in ScopeSim, this seems
         #       to be the quickest way to turn spectypes into IDs...
