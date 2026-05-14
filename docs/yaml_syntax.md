@@ -66,6 +66,12 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 :caption: Disk example
 ```
 
+## Star Cluster
+```{literalinclude} example_yamls/stellar/imf_cluster.yaml
+:name: yaml_stellar_imf
+:caption: Simple young cluster based on IMF
+```
+
 ## Extragalactic
 ```{literalinclude} example_yamls/extragalactic/sersic0.yaml
 :name: yaml_extragalactic_sersic0
