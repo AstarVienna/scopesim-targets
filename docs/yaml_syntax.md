@@ -41,14 +41,16 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 :name: yaml_stellar_star_field0
 :caption: Star field
 ```
+<!--
 ```{literalinclude} example_yamls/stellar/star_field1.yaml
 :name: yaml_stellar_star_field1
 :caption: Star field
 ```
-```{literalinclude} example_yamls/stellar/star_ield2.yaml
+```{literalinclude} example_yamls/stellar/star_field2.yaml
 :name: yaml_stellar_star_field2
 :caption: Star field including binaries
 ```
+-->
 
 ## Exoplanetary
 ```{literalinclude} example_yamls/exoplanetary/planets0.yaml
@@ -62,6 +64,12 @@ For detailed explanations of the parameters, see [defining positions](defining_p
 ```{literalinclude} example_yamls/exoplanetary/disk0.yaml
 :name: yaml_exoplanetary_disk0
 :caption: Disk example
+```
+
+## Star Cluster
+```{literalinclude} example_yamls/stellar/imf_cluster.yaml
+:name: yaml_stellar_imf
+:caption: Simple young cluster based on IMF
 ```
 
 ## Extragalactic
