@@ -51,6 +51,7 @@ class PointSourceTarget(SpectrumTarget):
 
     def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
         """Create spectra dict for Source conversion."""
+        # TODO: Deal with redshift from position!
         return {start: self.resolve_spectrum(self.spectrum)}
 
     def _create_source_table(self) -> Table:
@@ -86,6 +87,8 @@ class PointSourceTarget(SpectrumTarget):
         # If not given from parent, resolve now
         if spectrum is None:
             spectrum = self.resolve_spectrum(self.spectrum)
+            spectrum = self.redshift_spectrum(spectrum, self.position)
+
         weight = self._get_spectrum_scale(spectrum, self.brightness)
 
         row = {
@@ -276,6 +279,12 @@ class Binary(PointSourceTarget):
         )
 
         spectra, (ref_pri, ref_sec) = self._resolve_spectra_refs(spectra, refs)
+        # Use primary position for both to deal with systemic radial velocity
+        # TODO: Implement instantaneous radial velocities somehow...
+        spectra = {
+            ref: self.redshift_spectrum(spec, primary_position)
+            for ref, spec in spectra.items()
+        }
 
         primary = {
             "x": x_arcsec_pri,
@@ -401,6 +410,7 @@ class PlanetarySystem(PointSourceTarget):
 
         for ref, component in enumerate(self.components, start=max(spectra)+1):
             spectrum = component.resolve_spectrum(component.spectrum)
+            spectrum = self.redshift_spectrum(spectrum, self.position)
 
             x_arcsec, y_arcsec = self._xy_arcsec_position(
                 component.resolve_position(self.position),
@@ -525,6 +535,7 @@ class StarField(PointSourceTarget):
 
         spectra_ids = dict(zip(set(self.spectra), count()))
         resolved_spectra = {
+            # TODO: Implement redshift from position.
             spectrum_id: self.resolve_spectrum(spectrum)
             for spectrum, spectrum_id in spectra_ids.items()
         }
