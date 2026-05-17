@@ -68,6 +68,7 @@ yaml_syntax.md
    scopesim_targets.target
    scopesim_targets.point_source
    scopesim_targets.extended_source
+   scopesim_targets.cluster
    scopesim_targets.spectral_classes
    scopesim_targets.yaml_constructors
    scopesim_targets.data_utils
