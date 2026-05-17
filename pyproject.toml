@@ -31,8 +31,8 @@ scopesim = ["scopesim (>=0.11.2,<1.0.0)"]
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^4.0.5"
-black = "^26.3.1"
-mypy = "^1.20.2"
+black = "^26.5.0"
+mypy = "^2.1.0"
 
 
 [tool.poetry.group.test.dependencies]
@@ -48,7 +48,7 @@ sphinx = "^9.0.4"
 sphinx-book-theme = "^1.2.0"
 sphinx-copybutton = ">=0.5.2,<1.0"
 sphinxcontrib-apidoc = ">=0.6.0,<1.0"
-sphinxcontrib-mermaid = "^2.0.1"
+sphinxcontrib-mermaid = "^2.0.2"
 myst-nb = "^1.4.0"
 sphinx-issues = "^6.0.0"
 
