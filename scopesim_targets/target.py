@@ -177,7 +177,10 @@ class SpectrumTarget(Target):
                 raise TypeError("Unkown spectrum format.")
 
     @staticmethod
-    def resolve_spectrum(spectrum: SPECTRUM_TYPE, brightness: Brightness | None = None) -> SourceSpectrum:
+    def resolve_spectrum(
+        spectrum: SPECTRUM_TYPE,
+        brightness: Brightness | None = None,
+    ) -> SourceSpectrum:
         """
         Create SpeXtrum instance from `spectrum` identifier.
 
@@ -193,6 +196,7 @@ class SpectrumTarget(Target):
 
         """
         if isinstance(spectrum, SourceSpectrum):
+            # TODO: Convert to SpeXtrum to get full method access?
             return spectrum
 
         if isinstance(spectrum, str) and spectrum.startswith("spex:"):
@@ -200,7 +204,7 @@ class SpectrumTarget(Target):
             return Spextrum(spectrum.removeprefix("spex:"))
 
         if isinstance(spectrum, str) and spectrum.startswith("file:"):
-            # Explicit SpeXtra identifier
+            # TODO: Convert to SpeXtrum to get full method access?
             # TODO: Use pathlib file URI here
             return SourceSpectrum.from_file(spectrum.removeprefix("file:"))
 
@@ -214,6 +218,23 @@ class SpectrumTarget(Target):
         #       letters, while SpectralType converts to uppercase. This needs a
         #       proper fix down the road.
         return Spextrum(f"{DEFAULT_LIBRARY.name}/{str(spectrum).lower()}")
+
+    @staticmethod
+    def redshift_spectrum(spectrum: Spextrum, position: SkyCoord) -> Spextrum:
+        """Doppler shift spectrum based on position `z` or `v_rad`."""
+        # TODO: Add proper unit tests for this!
+        if (
+            isinstance(position.distance, Distance)  # catch default distance
+            and position.distance > 50 * u.Mpc
+        ):
+            return spectrum.redshift(z=position.distance.z)
+
+        try:
+            return spectrum.redshift(vel=position.radial_velocity)
+        except ValueError:  # no radial_velocity defined
+            pass
+
+        return spectrum  # return as-is
 
     @property
     def brightness(self) -> Brightness:

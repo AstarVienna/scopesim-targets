@@ -48,6 +48,9 @@ class ParametrizedTarget(ExtendedSourceTarget):
                 self.spectrum).scale_to_magnitude(
                     self.brightness.mag, self.brightness.band)
 
+        if self.position is not None:
+            spectrum = self.redshift_spectrum(spectrum, self.position)
+
         source = Source(field=ImageSourceField(
             hdu, spectra={0: spectrum}
         ))
