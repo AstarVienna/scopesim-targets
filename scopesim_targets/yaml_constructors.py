@@ -11,6 +11,9 @@ astropy YAML loader instead of the default one.
 The way this works is that the `register_foo` functions are called once in the
 top-level `__init__.py`, which makes the representers, constructors and implicit
 resolvers available everywhere for the standard YAML loaders and dumpers.
+
+Note: The constructors have to be added to both default (Full) and SafeLoader,
+in order to work with any YAML loader out-of-the-box.
 """
 
 import re
@@ -47,7 +50,9 @@ def register_qty() -> None:
 
     yaml.add_representer(u.Quantity, qty_representer)
     yaml.add_constructor("!qty", qty_constructor)
+    yaml.add_constructor("!qty", qty_constructor, Loader=yaml.SafeLoader)
     yaml.add_implicit_resolver("!qty", quantity_pattern)
+    yaml.add_implicit_resolver("!qty", quantity_pattern, Loader=yaml.SafeLoader)
 
 
 def register_coord() -> None:
@@ -64,6 +69,7 @@ def register_coord() -> None:
 
     yaml.add_representer(SkyCoord, coord_representer)
     yaml.add_constructor("!Coord", coord_constructor)
+    yaml.add_constructor("!Coord", coord_constructor, Loader=yaml.SafeLoader)
 
 
 def register_target_constructor(target_cls) -> None:
@@ -71,3 +77,5 @@ def register_target_constructor(target_cls) -> None:
     def target_constructor(loader, node):
         return target_cls(**loader.construct_mapping(node, deep=True))
     yaml.add_constructor(f"!{target_cls.__name__}", target_constructor)
+    yaml.add_constructor(f"!{target_cls.__name__}", target_constructor,
+                         Loader=yaml.SafeLoader)
