@@ -168,7 +168,13 @@ class IMFPopulation(ZeroAgePopulation):
         delta_mag = distmod + absmags - specmags
         weights = (delta_mag.value * delta_mag.unit()).physical
 
-        return {"ref": specref, "weight": weights}, spectra
+        coldict = {
+            "ref": specref,
+            "weight": weights,
+            "absmag": absmags,
+            "mass": masses,
+        }
+        return coldict, spectra
 
     def plot(
         self,

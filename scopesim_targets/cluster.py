@@ -68,7 +68,7 @@ class ZeroAgeCluster(Cluster):
 
         tbl = Table(
             data=src_coldict,
-            names=["x", "y", "ref", "weight"],
+            names=["x", "y", "ref", "weight", "absmag", "mass"],
             units={"x": u.arcsec, "y": u.arcsec},
         )
         return Source(field=TableSourceField(tbl, spectra=spectra))
