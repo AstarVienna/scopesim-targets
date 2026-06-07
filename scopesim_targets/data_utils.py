@@ -9,7 +9,7 @@ from . import PKG_DIR, DATA_DIR
 
 RETRIEVER = pooch.create(
     path=Path.home() / ".astar/scopesim-targets",
-    base_url="https://github.com/AstarVienna/scopesim-targets/data/",
+    base_url="https://raw.githubusercontent.com/AstarVienna/scopesim-targets/refs/heads/main/data/",
     # env=None,
     registry=None,  # load afterwards
     retry_if_failed=5,
@@ -25,4 +25,4 @@ def fetch_data_file(filename: str):
     """
     if DATA_DIR.is_dir() and (path := DATA_DIR / filename).exists():
         return path
-    RETRIEVER.fetch(filename, progressbar=True)
+    return RETRIEVER.fetch(filename, progressbar=True)
