@@ -37,6 +37,27 @@ class LogNormal(rv_continuous):
         return x**-delta * np.exp(-(mo / x)**beta) * 15
 
 
+# TODO: Carefully check this with all 3 papers (Ch01, 03, Kr02), and consider
+# usnig logpdf instead of log-native Chs...
+class BrokenLogNormal(rv_continuous):
+    def _lognormal(self, x, mo, delta, beta):
+        return x**-delta * np.exp(-(mo / x)**beta)
+
+    def _pdf(self, x, mo, delta, beta, mc, alpha, norm):
+        # Anchor coefficient: powerlaw must equal lognormal at mc
+        anchor = self._lognormal(mc, mo, delta, beta)
+
+        lognormal_region = x <= mc
+        powerlaw_region  = x >  mc
+
+        result = np.select(
+            [lognormal_region,                   powerlaw_region],
+            [self._lognormal(x, mo, delta, beta), anchor * (x / mc)**-alpha],
+            default=0.0,
+        )
+        return result * norm
+
+
 # FIXME: These get auto-generated docstrings from the base class, so they should
 #        show up on RTD, but don't. See "attributes" in the module template...
 # TODO: Consider renaming these to something more generic if the PDFs are used
@@ -47,6 +68,7 @@ class LogNormal(rv_continuous):
 #       the Mamajek stellar parameters lookup table.
 kroupa_gen = BrokenPowerlaw(name="Kroupa02", a=0.01, b=60, momtype=0)
 chabrier_gen = LogNormal(name="Chabrier01", a=0.01, b=60)
+chabrier_broken_gen = BrokenLogNormal(name="Chabrier03", a=0.01, b=60)
 
 
 def load_default_imfs() -> dict[str, rv_continuous]:
@@ -56,7 +78,7 @@ def load_default_imfs() -> dict[str, rv_continuous]:
     # Kroupa 2002
     # 2002Sci...295...82K
     kroupa_02_params = {
-        "a0": .3, "a1": 1.3, "a2": 2.3, "a3": 2.7,
+        "a0": .3, "a1": 1.3, "a2": 2.3, "a3": 2.3,  # 2.7??
         "m0": .01, "m1": .08, "m2": .5, "m3": 1.,
     }
     imfs["kroupa02"] = kroupa_gen(**kroupa_02_params)
@@ -66,6 +88,14 @@ def load_default_imfs() -> dict[str, rv_continuous]:
         "mo": 716.4, "delta": 3.3, "beta": .25,
     }
     imfs["chabrier01"] = chabrier_gen(**chabrier_01_params)
+
+    # Chabrier 2003 single-star
+    # TODO: Double check this!
+    chabrier_03_params = {
+        "mo": 716.4, "delta": 3.3, "beta": .25,
+        "mc": 1, "alpha": 2.3, "norm": 15,
+    }
+    imfs["chabrier03"] = chabrier_broken_gen(**chabrier_03_params)
 
     return imfs
 
