@@ -1,9 +1,9 @@
 !ZeroAgeCluster
 position:
   !Coord
-    ra: 0 deg
-    dec: 0 deg
-    distance: 1 kpc
+  ra: 0 deg
+  dec: 0 deg
+  distance: 1 kpc
 pop_class: IMFPopulation
 pop_params:
   n_stars: 1000
