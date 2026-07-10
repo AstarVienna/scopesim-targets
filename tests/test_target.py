@@ -11,6 +11,7 @@ from synphot import SourceSpectrum
 from astar_utils import SpectralType
 from spextra.exceptions import NotInLibraryError
 
+from scopesim_targets.brightness import parse_brightness, BrightnessError
 from scopesim_targets.target import Target, SpectrumTarget
 
 
@@ -138,21 +139,11 @@ class TestSpectrumTarget:
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum)
 
     @pytest.mark.webtest
-    def test_brightness_number(self, spectrum_target_subcls):
+    def test_brightness_delegates_to_parser(self, spectrum_target_subcls):
+        # setter -> _parse_brightness wrapper -> parse_brightness, valid band survives
         spectrum_target_subcls.brightness = ["V", 10]
-        assert spectrum_target_subcls.brightness.band == "V"
-        assert spectrum_target_subcls.brightness.mag == 10*u.mag
-
-    @pytest.mark.webtest
-    def test_brightness_qty(self, spectrum_target_subcls):
-        spectrum_target_subcls.brightness = ["R", 12.5*u.mag]
-        assert spectrum_target_subcls.brightness.band == "R"
-        assert spectrum_target_subcls.brightness.mag == 12.5*u.mag
-
-    @pytest.mark.webtest
-    def test_brightness_throws(self, spectrum_target_subcls):
-        with pytest.raises(TypeError):
-            spectrum_target_subcls.brightness = "bogus"
+        assert spectrum_target_subcls.brightness.locator == "V"
+        assert spectrum_target_subcls.brightness.value == 10 * u.mag
 
     @pytest.mark.webtest
     def test_brightness_throws_filter(self, spectrum_target_subcls):
@@ -166,3 +157,9 @@ class TestSpectrumTarget:
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum),
             spectrum_target_subcls.brightness)
         npt.assert_allclose(scale, 6.24e-12, rtol=3e-4)  # TODO: CHECK THIS NUMBER!!!
+
+    def test_surface_brightness_on_point_source_raises_E7(self):
+        sb = parse_brightness(["V", "21.5 mag / arcsec2"])
+        with pytest.raises(BrightnessError) as exc:
+            SpectrumTarget._get_spectrum_scale(None, sb)
+        assert exc.value.code == "E7"

@@ -2,9 +2,7 @@
 """Contains main ``Target`` class."""
 
 from abc import ABCMeta, abstractmethod
-from collections import namedtuple
 from collections.abc import Mapping
-from numbers import Number  # matches int, float and all the numpy scalars
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle, Distance
@@ -16,9 +14,13 @@ from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 from scopesim import Source
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
+from .brightness import (
+    parse_brightness,
+    Brightness,
+    LocatorKind,
+    BrightnessError,
+)
 
-
-Brightness = namedtuple("Brightness", ["band", "mag"])
 
 # For now, limit possible bands to ETC filters in SpeXtra
 FILTER_SYSTEM = FilterSystem("etc")
@@ -211,7 +213,8 @@ class SpectrumTarget(Target):
         if isinstance(spectrum, str) and spectrum.startswith("blackbody:"):
             temp = u.Quantity(spectrum.removeprefix("blackbody:"))
             spec = Spextrum.black_body_spectrum(
-                temp, brightness.mag, brightness.band)
+                temp, brightness.mag, brightness.band
+            )
             return spec
 
         # HACK: The current DEFAULT_LIBRARY stores spectral classes in lowercase
@@ -246,22 +249,34 @@ class SpectrumTarget(Target):
         self._brightness = self._parse_brightness(brightness)
 
     @staticmethod
-    def _parse_brightness(brightness: BRIGHTNESS_TYPE):
-        match brightness:
-            case str(band), u.Quantity() | Number() as mag:
-                # TODO: Consider adding logging about unit assumptions
-                # TODO: Implement support for flux instead of mag
-                if band not in FILTER_SYSTEM:
-                    raise ValueError(f"Band '{band}' unknown.")
-                return Brightness(band, mag << u.mag)
-            case _:
-                raise TypeError("Unkown brightness format.")
+    def _parse_brightness(brightness: BRIGHTNESS_TYPE) -> Brightness:
+        """Normalize the ``brightness`` input into a :class:`Brightness`.
+
+        Structural parsing (the two-slot grammar, physical-type dispatch,
+        magnitude systems, surface-brightness divisor and the E1-E5 error
+        matrix) is delegated to :func:`.brightness.parse_brightness`. This
+        wrapper adds the one load-time check the pure parser deliberately omits:
+        band membership in the active :data:`FILTER_SYSTEM`.
+        """
+        parsed = parse_brightness(brightness)
+        if (
+            parsed.locator_kind is LocatorKind.BAND
+            and parsed.locator not in FILTER_SYSTEM
+        ):
+            raise ValueError(f"Band '{parsed.locator}' unknown.")
+        return parsed
 
     @staticmethod
     def _get_spectrum_scale(
         spectrum: SourceSpectrum,
         brightness: Brightness,
     ) -> float:
+        # A point source has no solid angle, so a surface brightness is invalid.
+        if brightness.is_surface_brightness:
+            raise BrightnessError(
+                "E7", "surface brightness is invalid for a point source"
+            )
+
         band = Passband(f"{FILTER_SYSTEM.name}/{brightness.band}")
 
         # TODO: Carefully check this implementation!

@@ -8,7 +8,7 @@ import yaml
 import numpy as np
 from astropy import units as u
 
-from scopesim_targets.target import Brightness
+from scopesim_targets.brightness import parse_brightness
 from scopesim_targets.point_source import (
     PointSourceTarget,
     Star,
@@ -54,14 +54,14 @@ def basic_binary():
 class TestBinary:
     def test_two_brightnesses(self):
         tgt = Binary(brightness=(("R", 10), ("V", 15*u.mag)))
-        assert tgt.brightness == Brightness("R", 10*u.mag)
-        assert tgt.brightness_secondary == Brightness("V", 15*u.mag)
+        assert tgt.brightness == parse_brightness(["R", 10])
+        assert tgt.brightness_secondary == parse_brightness(["V", 15])
         with pytest.raises(AttributeError):
             tgt.contrast
 
     def test_brightness_and_contrast(self):
         tgt = Binary(brightness=("R", 10), contrast=100.)
-        assert tgt.brightness == Brightness("R", 10*u.mag)
+        assert tgt.brightness == parse_brightness(["R", 10])
         assert tgt.contrast == 100
         with pytest.raises(AttributeError):
             tgt.brightness_secondary
