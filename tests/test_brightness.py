@@ -15,13 +15,13 @@ from scopesim_targets.brightness import (
     LocatorKind,
     AmountKind,
     PhotometricSystem,
+    AnchorFrame,
+    FromSpectralType,
     BrightnessError,
     solid_angle_unit,
     unit_includes_per_physical_type,
 )
 
-
-ARCSEC2 = u.Unit("arcsec2")
 
 
 class TestLocatorDispatch:
@@ -40,17 +40,24 @@ class TestLocatorDispatch:
 
     def test_quantity_locator_matches_string(self):
         # The YAML resolver may hand us a Quantity for an unquoted locator.
-        assert (parse_brightness([656.3 * u.nm, "5 mJy"])
-                == parse_brightness(["656.3 nm", "5 mJy"]))
+        assert parse_brightness([656.3 * u.nm, "5 mJy"]) == parse_brightness(
+            ["656.3 nm", "5 mJy"]
+        )
 
 
 class TestAmountDispatch:
-    @pytest.mark.parametrize("amount, system", [
-        ("15 mag", PhotometricSystem.VEGA),
-        ("10.5 mag(AB)", PhotometricSystem.AB),
-        ("10 mag(ST)", PhotometricSystem.ST),
-        ("10 mag(Vega)", PhotometricSystem.VEGA),   # astropy can't parse this; we do
-    ])
+    @pytest.mark.parametrize(
+        "amount, system",
+        [
+            ("15 mag", PhotometricSystem.VEGA),
+            ("10.5 mag(AB)", PhotometricSystem.AB),
+            ("10 mag(ST)", PhotometricSystem.ST),
+            (
+                "10 mag(Vega)",
+                PhotometricSystem.VEGA,
+            ),  # astropy can't parse this; we do
+        ],
+    )
     def test_magnitude_systems(self, amount, system):
         b = parse_brightness(["R", amount])
         assert b.amount_kind is AmountKind.MAG
@@ -63,11 +70,14 @@ class TestAmountDispatch:
         assert b.system is PhotometricSystem.VEGA
         assert b.value == 15 * u.mag
 
-    @pytest.mark.parametrize("amount, kind", [
-        ("3.5 mJy", AmountKind.FLUX_DENSITY_NU),
-        ("1.2e-16 erg / (s cm2 Angstrom)", AmountKind.FLUX_DENSITY_LAM),
-        ("4.2e-18 W / m2", AmountKind.ENERGY_FLUX),
-    ])
+    @pytest.mark.parametrize(
+        "amount, kind",
+        [
+            ("3.5 mJy", AmountKind.FLUX_DENSITY_NU),
+            ("1.2e-16 erg / (s cm2 Angstrom)", AmountKind.FLUX_DENSITY_LAM),
+            ("4.2e-18 W / m2", AmountKind.ENERGY_FLUX),
+        ],
+    )
     def test_flux_amounts(self, amount, kind):
         locator = "656.3 nm" if "Angstrom" in amount else "K"
         b = parse_brightness([locator, amount])
@@ -76,13 +86,36 @@ class TestAmountDispatch:
 
 
 class TestSurfaceBrightness:
-    @pytest.mark.parametrize("amount, kind, system, sa", [
-        ("21.5 mag / arcsec2", AmountKind.MAG, PhotometricSystem.VEGA, ARCSEC2),
-        ("21.5 mag(AB) / arcsec2", AmountKind.MAG, PhotometricSystem.AB, ARCSEC2),
-        ("18 mag(ST) / sr", AmountKind.MAG, PhotometricSystem.ST, u.sr),
-        ("5 MJy / sr", AmountKind.FLUX_DENSITY_NU, PhotometricSystem.VEGA, u.sr),
-        ("3e-8 W / (m2 arcsec2)", AmountKind.ENERGY_FLUX, PhotometricSystem.VEGA, ARCSEC2),
-    ])
+    @pytest.mark.parametrize(
+        "amount, kind, system, sa",
+        [
+            (
+                "21.5 mag / arcsec2",
+                AmountKind.MAG,
+                PhotometricSystem.VEGA,
+                u.arcsec**2,
+            ),
+            (
+                "21.5 mag(AB) / arcsec2",
+                AmountKind.MAG,
+                PhotometricSystem.AB,
+                u.arcsec**2,
+            ),
+            ("18 mag(ST) / sr", AmountKind.MAG, PhotometricSystem.ST, u.sr),
+            (
+                "5 MJy / sr",
+                AmountKind.FLUX_DENSITY_NU,
+                PhotometricSystem.VEGA,
+                u.sr,
+            ),
+            (
+                "3e-8 W / (m2 arcsec2)",
+                AmountKind.ENERGY_FLUX,
+                PhotometricSystem.VEGA,
+                u.arcsec**2,
+            ),
+        ],
+    )
     def test_surface_brightness_forms(self, amount, kind, system, sa):
         b = parse_brightness(["V", amount])
         assert b.amount_kind is kind
@@ -106,11 +139,14 @@ class TestCanonicalMapping:
         assert b.locator_kind is LocatorKind.FREQUENCY
         assert b.amount_kind is AmountKind.FLUX_DENSITY_NU
 
-    @pytest.mark.parametrize("mapping", [
-        {"value": "15 mag"},                                 # no locator
-        {"band": "V", "frequency": "230 GHz", "value": 1},   # two locators
-        {"band": "V"},                                       # no value
-    ])
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            {"value": "15 mag"},  # no locator
+            {"band": "V", "frequency": "230 GHz", "value": 1},  # two locators
+            {"band": "V"},  # no value
+        ],
+    )
     def test_requires_exactly_one_locator_and_value(self, mapping):
         with pytest.raises(BrightnessError) as exc:
             parse_brightness(mapping)
@@ -120,26 +156,41 @@ class TestCanonicalMapping:
 class TestQuoteIndependence:
     """A YAML author quoting or not must not change the parsed result."""
 
-    @pytest.mark.parametrize("quantity, string", [
-        (15 * u.mag, "15 mag"),
-        (3.5 * u.mJy, "3.5 mJy"),
-    ])
+    @pytest.mark.parametrize(
+        "quantity, string",
+        [
+            (15 * u.mag, "15 mag"),
+            (3.5 * u.mJy, "3.5 mJy"),
+        ],
+    )
     def test_amount(self, quantity, string):
-        assert parse_brightness(["R", quantity]) == parse_brightness(["R", string])
+        assert parse_brightness(["R", quantity]) == parse_brightness(
+            ["R", string]
+        )
 
     def test_locator(self):
-        assert (parse_brightness([230 * u.GHz, "5 mJy"])
-                == parse_brightness(["230 GHz", "5 mJy"]))
+        assert parse_brightness([230 * u.GHz, "5 mJy"]) == parse_brightness(
+            ["230 GHz", "5 mJy"]
+        )
 
 
 class TestErrorMatrix:
-    @pytest.mark.parametrize("spec, code", [
-        (["V", "5 kg"], "E1"),                                         # bad phys type
-        (["5 kg", "15 mag"], "E2"),                                    # bad locator
-        (["230 GHz", "15 mag"], "E3"),                                 # mag needs band
-        ({"band": "K", "value": "3.5 mJy", "system": "AB"}, "E4"),     # system on non-mag
-        ({"band": "R", "value": "10 mag(ST)", "system": "AB"}, "E5"),  # double system
-    ])
+    @pytest.mark.parametrize(
+        "spec, code",
+        [
+            (["V", "5 kg"], "E1"),  # bad phys type
+            (["5 kg", "15 mag"], "E2"),  # bad locator
+            (["230 GHz", "15 mag"], "E3"),  # mag needs band
+            (
+                {"band": "K", "value": "3.5 mJy", "system": "AB"},
+                "E4",
+            ),  # system on non-mag
+            (
+                {"band": "R", "value": "10 mag(ST)", "system": "AB"},
+                "E5",
+            ),  # double system
+        ],
+    )
     def test_error_codes(self, spec, code):
         with pytest.raises(BrightnessError) as exc:
             parse_brightness(spec)
@@ -154,23 +205,31 @@ class TestErrorMatrix:
 
 
 class TestHelpers:
-    @pytest.mark.parametrize("unit, expected", [
-        ("Jy / sr", u.sr),
-        ("Jy / arcsec2", ARCSEC2),
-        ("W / (m2 arcsec2)", ARCSEC2),
-        ("Jy", None),
-        ("W / m2", None),
-    ])
+    @pytest.mark.parametrize(
+        "unit, expected",
+        [
+            ("Jy / sr", u.sr),
+            ("Jy / arcsec2", u.arcsec**2),
+            ("W / (m2 arcsec2)", u.arcsec**2),
+            ("Jy", None),
+            ("W / m2", None),
+        ],
+    )
     def test_solid_angle_unit(self, unit, expected):
         assert solid_angle_unit(u.Unit(unit)) == expected
 
-    @pytest.mark.parametrize("unit, per", [
-        ("Jy / sr", True),
-        ("Jy / arcsec2", True),
-        ("Jy", False),
-    ])
+    @pytest.mark.parametrize(
+        "unit, per",
+        [
+            ("Jy / sr", True),
+            ("Jy / arcsec2", True),
+            ("Jy", False),
+        ],
+    )
     def test_unit_includes_per_solid_angle(self, unit, per):
-        assert unit_includes_per_physical_type(u.Unit(unit), "solid angle") is per
+        assert (
+            unit_includes_per_physical_type(u.Unit(unit), "solid angle") is per
+        )
 
     def test_function_unit_has_no_bases(self):
         # ABmag is a function unit -> the AttributeError path -> False
@@ -178,16 +237,18 @@ class TestHelpers:
 
 
 class TestRoundTrip:
-    @pytest.fixture(params=[
-        ["R", "15 mag"],
-        ["R", "10.5 mag(AB)"],
-        ["V", "21.5 mag / arcsec2"],
-        ["V", "21.5 mag(AB) / arcsec2"],
-        ["K", "3.5 mJy"],
-        ["230 GHz", "5 mJy"],
-        ["656.3 nm", "1.2e-16 erg / (s cm2 Angstrom)"],
-        {"band": "V", "value": 21.4, "system": "AB"},
-    ])
+    @pytest.fixture(
+        params=[
+            ["R", "15 mag"],
+            ["R", "10.5 mag(AB)"],
+            ["V", "21.5 mag / arcsec2"],
+            ["V", "21.5 mag(AB) / arcsec2"],
+            ["K", "3.5 mJy"],
+            ["230 GHz", "5 mJy"],
+            ["656.3 nm", "1.2e-16 erg / (s cm2 Angstrom)"],
+            {"band": "V", "value": 21.4, "system": "AB"},
+        ]
+    )
     def sample_spec(self, request):
         return request.param
 
@@ -199,21 +260,53 @@ class TestRoundTrip:
         assert parse_brightness(sample_spec) == parse_brightness(sample_spec)
 
 
-class TestCompatShims:
-    """TEMPORARY: the .band/.mag shims bridge the legacy to_source path and are
-    removed in Phase 2. These guard their interim behaviour until then."""
+class TestAnchorFrame:
+    """Pure tests for the ``anchor`` frame enum (see defining_brightness.md)."""
 
-    def test_band_and_mag(self):
-        b = parse_brightness(["R", "12.5 mag"])
-        assert b.band == "R"
-        assert b.mag == 12.5 * u.mag
+    def test_default_is_observed(self):
+        assert AnchorFrame.coerce(None) is AnchorFrame.OBSERVED
 
-    def test_mag_rejects_non_vega(self):
-        b = parse_brightness(["R", "10 mag(AB)"])
-        with pytest.raises(NotImplementedError):
-            _ = b.mag
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("observed", AnchorFrame.OBSERVED),
+            ("intrinsic", AnchorFrame.INTRINSIC),
+            ("absolute", AnchorFrame.ABSOLUTE),
+            (AnchorFrame.ABSOLUTE, AnchorFrame.ABSOLUTE),
+        ],
+    )
+    def test_coerce_accepts_strings_and_enum(self, value, expected):
+        assert AnchorFrame.coerce(value) is expected
 
-    def test_band_rejects_non_band_locator(self):
-        b = parse_brightness(["230 GHz", "5 mJy"])
-        with pytest.raises(AttributeError):
-            _ = b.band
+    def test_coerce_rejects_unknown(self):
+        with pytest.raises(ValueError, match="anchor must be one of"):
+            AnchorFrame.coerce("apparent")
+
+
+class TestFromSpectralTypeMarker:
+    """The ``{from_spectral_type: ...}`` form parses to a deferred marker.
+
+    Resolution needs the target's spectrum + distance, so the pure parser only
+    recognizes the shape and hands back a :class:`FromSpectralType`; the actual
+    (network-backed) lookup is exercised in ``test_target.py`` as a webtest.
+    """
+
+    def test_returns_marker_with_default_band(self):
+        marker = parse_brightness({"from_spectral_type": "mamajek"})
+        assert isinstance(marker, FromSpectralType)
+        assert marker.table == "mamajek"
+        assert marker.band == "V"
+
+    def test_optional_band(self):
+        marker = parse_brightness({"from_spectral_type": "mamajek", "band": "Ks"})
+        assert marker.band == "Ks"
+
+    def test_table_must_be_string(self):
+        with pytest.raises(BrightnessError) as exc:
+            parse_brightness({"from_spectral_type": 5})
+        assert exc.value.code == "E2"
+
+    def test_unexpected_keys_rejected(self):
+        with pytest.raises(BrightnessError) as exc:
+            parse_brightness({"from_spectral_type": "mamajek", "value": 10})
+        assert exc.value.code == "E2"

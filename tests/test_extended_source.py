@@ -19,7 +19,12 @@ from numpy import testing as npt
 import astropy.units as u
 
 from scopesim_targets.extended_source import Box, Disk, Ring, Sersic, Flat
-from scopesim_targets.brightness import BrightnessError, parse_brightness
+from scopesim_targets.brightness import AnchorFrame
+from scopesim_targets.brightness import (
+    BrightnessError,
+    parse_brightness,
+    AmountKind,
+)
 
 
 @pytest.fixture
@@ -223,11 +228,36 @@ class TestSurfaceBrightness:
         m_big = flat._effective_integrated_brightness(big).value
         assert m_big < m_small
 
-    def test_nonmagnitude_sb_not_implemented(self, optical_train):
+    def test_nonmagnitude_sb_reduces_to_integrated(self, optical_train):
+        # Linear surface brightness now reduces too: total = SB * A_eff, with
+        # the per-solid-angle divisor stripped (Box total_flux_factor = 24
+        # arcsec2). Retires the former Jy/sr deferral.
         box = Box(params={"x_width": 6, "y_width": 4})
         box._brightness = parse_brightness(["V", "5 MJy / sr"])
-        with pytest.raises(NotImplementedError):
-            box._effective_integrated_brightness(optical_train)
+        eff = box._effective_integrated_brightness(optical_train)
+        assert eff.solid_angle is None
+        assert eff.amount_kind is AmountKind.FLUX_DENSITY_NU
+        npt.assert_allclose(
+            eff.value.to_value(u.Jy),
+            (5 * u.MJy / u.sr * 24 * u.arcsec**2).to_value(u.Jy),
+            rtol=1e-9,
+        )
+
+    def test_radiance_sb_reduces_to_energy_flux(self, optical_train):
+        # Per-solid-angle energy flux (radiance) reduces to a band-integrated
+        # energy flux over the effective area.
+        box = Box(params={"x_width": 6, "y_width": 4})
+        box._brightness = parse_brightness(["V", "3e-8 W / (m2 arcsec2)"])
+        eff = box._effective_integrated_brightness(optical_train)
+        assert eff.solid_angle is None
+        assert eff.amount_kind is AmountKind.ENERGY_FLUX
+        npt.assert_allclose(
+            eff.value.to_value(u.W / u.m**2),
+            (
+                3e-8 * u.W / (u.m**2 * u.arcsec**2) * 24 * u.arcsec**2
+            ).to_value(u.W / u.m**2),
+            rtol=1e-9,
+        )
 
     def test_nonfinite_integrated_raises_E6(self, optical_train):
         # An *integrated* brightness on a non-integrable profile has no finite
@@ -277,3 +307,56 @@ class TestToSource:
         # weight map, flux in the spectrum (no per-pixel image-owns-flux path).
         flat = Flat(spectrum="G2V", brightness=["V", "21.5 mag / arcsec2"])
         assert flat.to_source(optical_train) is not None
+
+
+class TestAnchorOnProfiles:
+    """Anchor-frame behaviour specific to extended (surface-brightness) targets."""
+
+    def test_absolute_surface_brightness_raises_E11(self):
+        # A surface brightness is distance-invariant, so anchor: absolute on an
+        # SB amount is a category error -- even for a finite profile, and even
+        # with a distance present. The guard keys on the *original* SB
+        # brightness, before the SB->integrated reduction.
+        prof = Sersic(
+            spectrum="G2V",
+            brightness=("V", "21 mag(AB) / arcsec2"),
+            params={"r_eff": 2, "n": 1},
+            position={"distance": 25 * u.pc},
+            anchor="absolute",
+        )
+        with pytest.raises(BrightnessError) as exc:
+            prof._anchored_spectrum_scale(None, prof.brightness)
+        assert exc.value.code == "E11"
+
+    @pytest.mark.skip(
+        reason="T-B8: needs the extinction attribute/screens, which are 'to be "
+        "implemented' (defining_extinction.md). Written in final form; enable "
+        "once screens are applied in the normative pipeline."
+    )
+    def test_observed_vs_intrinsic_surface_brightness_with_screen(
+        self, optical_train
+    ):
+        # T-B8. With a 2-mag extinction screen in the brightness band:
+        #   * observed: the reddened SED is scaled so band photometry matches the
+        #     SB value -> the anchored scale is unchanged at that band.
+        #   * intrinsic: the unextincted SED is scaled to the SB value first,
+        #     then the screen dims it -> the realized band flux is fainter by the
+        #     screen transmission, 10**(-0.4 * 2) = 10**(-0.8).
+        # So intrinsic / observed == 10**(-0.8) at the brightness band.
+        screen = {"value": "2 mag", "band": "V"}
+        common = dict(
+            spectrum="G2V",
+            brightness=("V", "18 mag / arcsec2"),
+            params={"r_eff": 3, "n": 4},
+            extinction=screen,  # noqa: F821 - future API (extinction attribute)
+        )
+        observed = Sersic(anchor="observed", **common)
+        intrinsic = Sersic(anchor="intrinsic", **common)
+        s_obs = observed._scale_spectrum(optical_train)
+        s_int = intrinsic._scale_spectrum(optical_train)
+        # Compare realized band flux of the two scaled spectra (ratio 10**-0.8).
+        npt.assert_allclose(
+            _band_flux(s_int, "V") / _band_flux(s_obs, "V"),
+            10 ** (-0.8),
+            rtol=1e-3,
+        )

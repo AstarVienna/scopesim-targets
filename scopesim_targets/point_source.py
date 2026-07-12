@@ -3,7 +3,6 @@
 
 from collections.abc import Sequence, Mapping
 from itertools import count
-from numbers import Number  # matches int, float and all the numpy scalars
 
 from more_itertools import unzip
 from astropy import units as u
@@ -28,6 +27,7 @@ class PointSourceTarget(SpectrumTarget):
         position: POSITION_TYPE | None = None,
         spectrum: SPECTRUM_TYPE | None = None,
         brightness: BRIGHTNESS_TYPE | None = None,
+        anchor: str | None = None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -35,12 +35,16 @@ class PointSourceTarget(SpectrumTarget):
             self.spectrum = spectrum
         if brightness is not None:
             self.brightness = brightness
+        if anchor is not None:
+            self.anchor = anchor
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        source = Source(field=TableSourceField(
-            self.to_table(), spectra=self.source_spectra()
-        ))
+        source = Source(
+            field=TableSourceField(
+                self.to_table(), spectra=self.source_spectra()
+            )
+        )
         return source
 
     def to_table(self, local_frame=None) -> Table:
@@ -55,8 +59,10 @@ class PointSourceTarget(SpectrumTarget):
         return {start: self.resolve_spectrum(self.spectrum)}
 
     def _create_source_table(self) -> Table:
-        tbl = Table(names=["x", "y", "ref", "weight"],
-                    units={"x": u.arcsec, "y": u.arcsec})
+        tbl = Table(
+            names=["x", "y", "ref", "weight"],
+            units={"x": u.arcsec, "y": u.arcsec},
+        )
 
         # TODO: Figure out if those are really needed
         tbl.meta["x_unit"] = "arcsec"
@@ -82,14 +88,16 @@ class PointSourceTarget(SpectrumTarget):
         # If not given from parent, position is always (0, 0) locally
         if local_frame is None:
             local_frame = self.position.skyoffset_frame()
-        x_arcsec, y_arcsec = self._xy_arcsec_position(self.position, local_frame)
+        x_arcsec, y_arcsec = self._xy_arcsec_position(
+            self.position, local_frame
+        )
 
         # If not given from parent, resolve now
         if spectrum is None:
             spectrum = self.resolve_spectrum(self.spectrum)
             spectrum = self.redshift_spectrum(spectrum, self.position)
 
-        weight = self._get_spectrum_scale(spectrum, self.brightness)
+        weight = self._anchored_spectrum_scale(spectrum, self.brightness)
 
         row = {
             "x": x_arcsec,
@@ -115,6 +123,37 @@ class Star(PointSourceTarget):
     `the YAML syntax <../yaml_syntax.html#single-stars>`_.
 
     """
+
+    @classmethod
+    def from_spectral_type(
+        cls,
+        spectrum: SPECTRUM_TYPE,
+        *,
+        position: POSITION_TYPE | None = None,
+        band: str = "V",
+        table: str = "mamajek",
+    ) -> "Star":
+        """Build a star whose brightness is resolved from its spectral type.
+
+        Convenience wrapper around the ``brightness: {from_spectral_type: ...}``
+        resolver: the absolute magnitude for ``spectrum`` is looked up in
+        ``table`` (band ``M_<band>``) and ``anchor`` is set to ``absolute``, so
+        the standard machinery applies the distance modulus from
+        ``position.distance`` (required -- a missing distance is E10) and any
+        extinction screens. The resolved value and table name/version are
+        recorded in :attr:`~.target.SpectrumTarget.brightness_provenance`.
+
+        Examples
+        --------
+        >>> tgt = Star.from_spectral_type(
+        ...     "K5V", position={"distance": 25 * u.pc}
+        ... )
+        """
+        return cls(
+            position=position,
+            spectrum=spectrum,
+            brightness={"from_spectral_type": table, "band": band},
+        )
 
 
 class Binary(PointSourceTarget):
@@ -145,36 +184,72 @@ class Binary(PointSourceTarget):
         spectra: Sequence[SPECTRUM_TYPE] | None = None,
         brightness: BRIGHTNESS_TYPE | Sequence[BRIGHTNESS_TYPE] | None = None,
         contrast: float | None = None,
+        anchor: str | None = None,
     ) -> None:
         if position is not None:
             self.position = position
         if offset is not None:
             self.offset = offset
+        if anchor is not None:
+            self.anchor = anchor
 
         if spectra is not None:
             self.primary_spectrum, self.secondary_spectrum = spectra
 
-        # or rather put this in contrast setter???
+        # Distinguish "two brightness specs" from "one (locator, amount) spec"
+        # structurally (see _is_brightness_pair), so string amounts
+        # ('R', '15 mag'), the canonical mapping form, and wavelength/frequency
+        # locators all route correctly -- the old (str(), Quantity()|Number())
+        # shape silently misread every one of those as a pair.
+        is_pair = self._is_brightness_pair(brightness)
         match brightness, contrast:
             case None, None:
                 pass  # TODO: What to do here?
-            case (str(), u.Quantity() | Number()) as primary, None:
-                self.brightness = primary
-                # self.contrast = None  # replace?
-            case None, contrast:
-                # self.brightness = None  # replace?
+            case None, _:
                 self.contrast = contrast
-            case (primary, secondary), None:
+            case _, None if is_pair:
+                primary, secondary = brightness
                 self.brightness = primary
                 self.brightness_secondary = secondary
-            case (str(), u.Quantity() | Number()) as primary, contrast:
-                self.brightness = primary
+            case _, None:
+                self.brightness = brightness
+            case _, _ if is_pair:
+                raise TypeError(
+                    "Either supply brightness and contrast or two brightness "
+                    "specs, but not both."
+                )
+            case _, _:
+                self.brightness = brightness
                 self.contrast = contrast
-            case (primary, secondary), contrast:
-                raise TypeError("Either supply brightness and contrast or two "
-                                "brightness tuples, but not both.")
-            case _:
-                raise TypeError("Unkown brightness format.")
+
+    @staticmethod
+    def _is_brightness_pair(brightness) -> bool:
+        """Is ``brightness`` two specs (primary + secondary) or one spec?
+
+        A *pair* is a length-2 sequence whose **both** elements are themselves
+        brightness specs -- each a mapping or a ``(locator, amount)`` sequence.
+        A *single* spec is a mapping, or a ``(locator, amount)`` pair whose
+        elements are a bare locator and amount (``str`` / ``Quantity`` /
+        number), never nested specs. The test is purely structural, so it does
+        not care whether the amount was written as a number, a ``Quantity`` or
+        a string, nor whether the locator is a band or a wavelength/frequency.
+        """
+
+        def _is_spec(item) -> bool:
+            # A full spec is a mapping or a (non-string) sequence; a bare
+            # locator/amount is a str, a scalar Quantity or a number -- none of
+            # which is a mapping or a non-string sequence.
+            return isinstance(item, Mapping) or (
+                isinstance(item, Sequence)
+                and not isinstance(item, (str, bytes))
+            )
+
+        return (
+            isinstance(brightness, Sequence)
+            and not isinstance(brightness, (str, bytes))
+            and len(brightness) == 2
+            and all(_is_spec(element) for element in brightness)
+        )
 
     @property
     def primary_spectrum(self) -> SPECTRUM_TYPE:
@@ -256,8 +331,9 @@ class Binary(PointSourceTarget):
         if hasattr(self, "_contrast"):
             return primary_weight / self.contrast
         if hasattr(self, "_brightness_secondary"):
-            return self._get_spectrum_scale(
-                secondary_spectrum, self.brightness_secondary)
+            return self._anchored_spectrum_scale(
+                secondary_spectrum, self.brightness_secondary
+            )
         raise ValueError("Either contrast or secondary brightness is needed.")
 
     def to_table(self, local_frame=None, spectra=None, refs=None) -> Table:
@@ -269,10 +345,12 @@ class Binary(PointSourceTarget):
             primary_position = self.position
         except AttributeError:
             # Default to (0, 0)
-            primary_position = SkyCoord(0*u.deg, 0*u.deg, 10*u.pc)
+            primary_position = SkyCoord(0 * u.deg, 0 * u.deg, 10 * u.pc)
 
         local_frame = primary_position.skyoffset_frame()
-        x_arcsec_pri, y_arcsec_pri = self._xy_arcsec_position(primary_position, local_frame)
+        x_arcsec_pri, y_arcsec_pri = self._xy_arcsec_position(
+            primary_position, local_frame
+        )
         x_arcsec_sec, y_arcsec_sec = self._xy_arcsec_position(
             self.resolve_position(primary_position),
             local_frame,
@@ -289,8 +367,9 @@ class Binary(PointSourceTarget):
         primary = {
             "x": x_arcsec_pri,
             "y": y_arcsec_pri,
-            "weight": self._get_spectrum_scale(
-                spectra[ref_pri], self.brightness),
+            "weight": self._anchored_spectrum_scale(
+                spectra[ref_pri], self.brightness
+            ),
             "ref": ref_pri,
         }
 
@@ -298,7 +377,8 @@ class Binary(PointSourceTarget):
             "x": x_arcsec_sec,
             "y": y_arcsec_sec,
             "weight": self._resolve_secondary_weight(
-                spectra[ref_sec], primary["weight"]),
+                spectra[ref_sec], primary["weight"]
+            ),
             "ref": ref_sec,
         }
 
@@ -334,6 +414,7 @@ class Exoplanet(PointSourceTarget):
         spectrum: SPECTRUM_TYPE | None = None,
         brightness: BRIGHTNESS_TYPE | None = None,
         contrast: float | None = None,
+        anchor: str | None = None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -345,6 +426,8 @@ class Exoplanet(PointSourceTarget):
             self.brightness = brightness
         if contrast is not None:
             self.contrast = contrast
+        if anchor is not None:
+            self.anchor = anchor
 
     @property
     def spectrum(self):
@@ -408,7 +491,9 @@ class PlanetarySystem(PointSourceTarget):
         table = self.primary.to_table(local_frame)
         spectra = self.primary.source_spectra()
 
-        for ref, component in enumerate(self.components, start=max(spectra)+1):
+        for ref, component in enumerate(
+            self.components, start=max(spectra) + 1
+        ):
             spectrum = component.resolve_spectrum(component.spectrum)
             spectrum = self.redshift_spectrum(spectrum, self.position)
 
@@ -499,7 +584,9 @@ class StarField(PointSourceTarget):
             raise ValueError(
                 "Spectra length doesn't match other attributes"
             ) from err
-        self._spectra = [self._parse_spectrum(spectrum) for spectrum in spectra]
+        self._spectra = [
+            self._parse_spectrum(spectrum) for spectrum in spectra
+        ]
 
     @property
     def brightnesses(self):
@@ -517,19 +604,23 @@ class StarField(PointSourceTarget):
                 "Brightnesses length doesn't match other attributes"
             ) from err
         self._brightnesses = [
-            self._parse_brightness(brightness)
-            if isinstance(brightness, Sequence) and len(brightness) > 1
-            else self._parse_brightness((self.band, brightness))
+            (
+                self._parse_brightness(brightness)
+                if isinstance(brightness, Sequence) and len(brightness) > 1
+                else self._parse_brightness((self.band, brightness))
+            )
             for brightness in brightnesses
         ]
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
-        local_frame = SkyCoord(0*u.deg, 0*u.deg).skyoffset_frame()
+        local_frame = SkyCoord(0 * u.deg, 0 * u.deg).skyoffset_frame()
 
         xy_positions = []
         for position in self.positions:
-            xy_positions.append(self._xy_arcsec_position(position, local_frame))
+            xy_positions.append(
+                self._xy_arcsec_position(position, local_frame)
+            )
 
         x_positions, y_positions = unzip(xy_positions)
 
@@ -542,7 +633,7 @@ class StarField(PointSourceTarget):
 
         spec_refs = [spectra_ids[spectrum] for spectrum in self.spectra]
         weights = [
-            self._get_spectrum_scale(resolved_spectra[spectrum_id], brightness)
+            self._anchored_spectrum_scale(resolved_spectra[spectrum_id], brightness)
             for spectrum_id, brightness in zip(spec_refs, self.brightnesses)
         ]
 

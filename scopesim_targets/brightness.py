@@ -43,6 +43,8 @@ __all__ = [
     "LocatorKind",
     "AmountKind",
     "PhotometricSystem",
+    "AnchorFrame",
+    "FromSpectralType",
     "BrightnessError",
     "parse_brightness",
     "unit_includes_per_physical_type",
@@ -59,9 +61,8 @@ class LocatorKind(Enum):
 class AmountKind(Enum):
     MAG = auto()
     FLUX_DENSITY_NU = auto()  # spectral flux density (per frequency): Jy, ...
-    FLUX_DENSITY_LAM = (
-        auto()
-    )  # spectral flux density (per wavelength): erg/s/cm2/A
+    # spectral flux density (per wavelength): erg/s/cm2/A
+    FLUX_DENSITY_LAM = auto()
     ENERGY_FLUX = auto()  # band-/line-integrated energy flux: W/m2
 
 
@@ -71,31 +72,88 @@ class PhotometricSystem(Enum):
     ST = "ST"
 
 
-_ERROR_DOCS: dict[str, str] = {
-    "E1": "amount unit of unrecognized physical type; see the dispatch table in defining_brightness.md",
-    "E2": "locator is neither band-shaped nor a length/frequency quantity; see the locator grammar",
-    "E3": "magnitude requires a band locator (monochromatic AB is a deferred discussion item)",
-    "E4": "'system' is only meaningful for magnitude amounts; see the photometric-systems section",
-    "E5": "'system' given both as a field and embedded in the amount string; see the photometric-systems section",
-    "E6": "integrated amount on a profile without a finite analytic total; see the validity matrix",
-    "E7": "surface-brightness amount on a point source; see the validity matrix",
-    "E8": "reserved 'params' key (amplitude/x_0/y_0); see defining_brightness.md",
-}
+class AnchorFrame(Enum):
+    """Frame the ``brightness`` value is anchored in (schema ``anchorFrame``).
+
+    Controls which SED the flux-authority scale is applied to and whether a
+    distance modulus enters (see ``defining_brightness.md`` /
+    ``defining_extinction.md``):
+
+    * ``OBSERVED`` (default) -- scale the *reddened* SED so photometry in the
+      band matches the value (catalog/ETC convention; extinction then only
+      changes colours).
+    * ``INTRINSIC`` -- scale the *unextincted* SED, then apply screens
+      (extinction dims *and* reddens).
+    * ``ABSOLUTE`` -- like ``INTRINSIC`` but the value refers to 10 pc; the
+      achromatic distance modulus from ``position.distance`` is applied before
+      the screens.
+
+    Because ``OBSERVED`` and ``INTRINSIC`` differ only in *when* extinction
+    screens act, they are behaviourally identical until the extinction
+    attribute is wired in; the distinction is kept here so screens slot into
+    the documented place without a downstream change.
+    """
+
+    OBSERVED = "observed"
+    INTRINSIC = "intrinsic"
+    ABSOLUTE = "absolute"
+
+    @classmethod
+    def coerce(cls, value: "AnchorFrame | str | None") -> "AnchorFrame":
+        """Normalize ``None``/str/enum into an :class:`AnchorFrame`."""
+        if value is None:
+            return cls.OBSERVED
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value))
+        except ValueError as exc:
+            allowed = ", ".join(repr(m.value) for m in cls)
+            raise ValueError(
+                f"anchor must be one of {allowed}, not {value!r}"
+            ) from exc
+
+
+@dataclass(frozen=True)
+class FromSpectralType:
+    """Deferred ``brightness: {from_spectral_type: <table>}`` resolver marker.
+
+    The pure parser cannot resolve this -- it needs the target's *spectrum*
+    (a :class:`~astar_utils.SpectralType`) and its ``position.distance``, which
+    live on the target. So :func:`parse_brightness` returns this marker and
+    :class:`~.target.SpectrumTarget` performs the (network-backed) lookup at
+    brightness-access time, recording the table name/version for reproducible
+    exports (same resolver pattern as extinction ``from_map``). ``band``
+    selects the absolute-magnitude column (default ``V`` -> ``M_V``).
+    """
+
+    table: str
+    band: str = "V"
 
 
 class BrightnessError(ValueError):
     """A brightness parse/consistency error, tagged with its matrix code."""
 
+    _ERROR_DOCS = {
+        "E1": "amount unit of unrecognized physical type; see the dispatch table in defining_brightness.md",
+        "E2": "locator is neither band-shaped nor a length/frequency quantity; see the locator grammar",
+        "E3": "magnitude requires a band locator (monochromatic AB is a deferred discussion item)",
+        "E4": "'system' is only meaningful for magnitude amounts; see the photometric-systems section",
+        "E5": "'system' given both as a field and embedded in the amount string; see the photometric-systems section",
+        "E6": "integrated amount on a profile without a finite analytic total; see the validity matrix",
+        "E7": "surface-brightness amount on a point source; see the validity matrix",
+        "E8": "reserved 'params' key (amplitude/x_0/y_0); see defining_brightness.md",
+        "E9": "blackbody spectrum without a brightness to scale it; see defining_spectra.md",
+        "E10": "'anchor: absolute' without a 'position.distance'; see the absolute-magnitudes section",
+        "E11": "'anchor: absolute' with a surface-brightness amount (surface brightness is distance-invariant); see the absolute-magnitudes section",
+        "E12": "'from_spectral_type' resolver on a non-SpectralType spectrum; see the spectral-type resolver section",
+    }
+
     def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
-        prefix = f"[{code}] "
-        body = detail or _ERROR_DOCS[code]
-        pointer = "" if detail == "" else f" ({_ERROR_DOCS[code]})"
-        super().__init__(f"{prefix}{body}{pointer}")
-
-
-def _err(code: str, detail: str = "") -> "BrightnessError":
-    return BrightnessError(code, detail)
+        body = detail or self._ERROR_DOCS[code]
+        pointer = "" if detail == "" else f" ({self._ERROR_DOCS[code]})"
+        super().__init__(f"[{code}] {body}{pointer}")
 
 
 def unit_includes_per_physical_type(
@@ -148,28 +206,6 @@ class Brightness:
     def is_surface_brightness(self) -> bool:
         return self.solid_angle is not None
 
-    # -- temporary compat shims -------------------------------------------
-    # The current ParametrizedTarget.to_source reads .band and .mag off the old
-    # namedtuple. These keep Sersic/Disk green until the Phase 2 to_source
-    # rewrite consumes the full Brightness; remove them then.
-    @property
-    def band(self) -> str:
-        if self.locator_kind is not LocatorKind.BAND:
-            raise AttributeError("brightness has no band locator")
-        return self.locator
-
-    @property
-    def mag(self) -> u.Quantity:
-        if self.amount_kind is not AmountKind.MAG:
-            raise AttributeError("brightness amount is not a magnitude")
-        if self.system is not PhotometricSystem.VEGA:
-            raise NotImplementedError(
-                f"{self.system.value} magnitude scaling arrives in Phase 2; the "
-                "legacy .mag shim represents Vega only (see "
-                "brightness_implementation_plan.md)."
-            )
-        return self.value
-
 
 # Band: letter-leading, no whitespace (schema 'band' pattern) -> disjoint from
 # any quantity string.
@@ -212,31 +248,44 @@ def _parse_mag_string(s: str) -> _Amount:
         s = s[: tail.start()]
     core = _MAG_CORE.match(s)
     if core is None:  # pragma: no cover - guarded by caller
-        raise _err("E1", f"could not parse magnitude amount {s!r}")
+        raise BrightnessError("E1", f"could not parse magnitude amount {s!r}")
     value = float(core.group(1)) * u.mag
     system = _SYSTEM[core.group(2)] if core.group(2) else None
     return _Amount(AmountKind.MAG, value, system, solid)
 
 
-# physical_type -> (AmountKind). Membership via astropy's alias-aware equality.
+# physical_type -> AmountKind. The dict is keyed on **PhysicalType objects**
+# (via ``u.get_physical_type``), never on strings: a ``PhysicalType`` is not
+# hash-compatible with its member strings (``hash(pt) != hash("energy flux")``),
+# so a string-keyed subscript ``lookup[unit.physical_type]`` KeyErrors for every
+# flux unit. ``str(pt)`` doesn't rescue it either -- composite types stringify as
+# the concatenation of their aliases (``W/m2`` -> "energy flux/irradiance";
+# ``erg/(s cm2 A)`` -> "power density/spectral flux density wav"), an internal
+# formatting detail with no cross-version guarantee. Keying on the registered
+# singleton sidesteps both: ``unit.physical_type`` returns that same singleton,
+# so lookup is identity-backed and alias-robust (``get_physical_type("irradiance")
+# is get_physical_type("energy flux")``), and a name astropy ever drops fails
+# loudly here at import rather than silently at lookup. The per-solid-angle
+# divisor (surface brightness / radiance) is stripped separately by
+# :func:`solid_angle_unit`; here it only selects the underlying flux kind.
+_FLUX_KINDS: dict[u.physical.PhysicalType, AmountKind] = {
+    u.get_physical_type("spectral flux density"): AmountKind.FLUX_DENSITY_NU,
+    u.get_physical_type("spectral flux density wav"): AmountKind.FLUX_DENSITY_LAM,
+    u.get_physical_type("energy flux"): AmountKind.ENERGY_FLUX,
+    u.get_physical_type("surface brightness"): AmountKind.FLUX_DENSITY_NU,  # per-freq SB
+    u.get_physical_type("surface brightness wav"): AmountKind.FLUX_DENSITY_LAM,  # per-wav SB
+    u.get_physical_type("radiance"): AmountKind.ENERGY_FLUX,  # integrated-flux SB
+}
+
+
 def _flux_kind(unit: u.UnitBase) -> AmountKind:
-    pt = unit.physical_type
-    if pt == "spectral flux density":
-        return AmountKind.FLUX_DENSITY_NU
-    if pt == "spectral flux density wav":
-        return AmountKind.FLUX_DENSITY_LAM
-    if pt == "energy flux" or pt == "irradiance":
-        return AmountKind.ENERGY_FLUX
-    if pt == "surface brightness":  # per-frequency SB
-        return AmountKind.FLUX_DENSITY_NU
-    if pt == "surface brightness wav":  # per-wavelength SB
-        return AmountKind.FLUX_DENSITY_LAM
-    if pt == "radiance":  # integrated-flux SB
-        return AmountKind.ENERGY_FLUX
-    raise _err(
-        "E1",
-        f"unrecognized amount physical type {str(pt)!r} for unit {unit!s}",
-    )
+    kind = _FLUX_KINDS.get(unit.physical_type)
+    if kind is None:
+        raise BrightnessError(
+            "E1",
+            f"unrecognized amount physical type {unit.physical_type!s} for unit {unit!s}",
+        )
+    return kind
 
 
 def _parse_amount(amount: object) -> _Amount:
@@ -251,7 +300,7 @@ def _parse_amount(amount: object) -> _Amount:
         try:
             q = u.Quantity(amount)  # rejects function units (by design)
         except (TypeError, ValueError) as exc:
-            raise _err(
+            raise BrightnessError(
                 "E1", f"could not parse amount {amount!r}: {exc}"
             ) from exc
         return _parse_amount(q)
@@ -265,7 +314,7 @@ def _parse_amount(amount: object) -> _Amount:
         kind = _flux_kind(unit)
         return _Amount(kind, amount, None, solid_angle_unit(unit))
 
-    raise _err("E1", f"unsupported amount type {type(amount).__name__}")
+    raise BrightnessError("E1", f"unsupported amount type {type(amount).__name__}")
 
 
 def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
@@ -276,7 +325,7 @@ def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
         try:
             locator = u.Quantity(locator)
         except (TypeError, ValueError) as exc:
-            raise _err(
+            raise BrightnessError(
                 "E2", f"locator {locator!r} is not a band or quantity: {exc}"
             ) from exc
     if isinstance(locator, u.Quantity):
@@ -285,14 +334,14 @@ def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
             return LocatorKind.WAVELENGTH, locator
         if pt == "frequency":
             return LocatorKind.FREQUENCY, locator
-        raise _err(
+        raise BrightnessError(
             "E2",
             f"locator quantity has physical type {str(pt)!r} (need length or frequency)",
         )
-    raise _err("E2", f"unsupported locator type {type(locator).__name__}")
+    raise BrightnessError("E2", f"unsupported locator type {type(locator).__name__}")
 
 
-def parse_brightness(brightness: object) -> Brightness:
+def parse_brightness(brightness: object) -> "Brightness | FromSpectralType":
     """Normalize any accepted ``brightness`` input into a :class:`Brightness`.
 
     Accepts the tuple sugar ``(locator, amount)`` and the canonical mapping
@@ -300,17 +349,33 @@ def parse_brightness(brightness: object) -> Brightness:
     accept ``str``, :class:`~astropy.units.Quantity` or (for the amount) a bare
     number, so behaviour is independent of whether the YAML implicit resolver
     fired on a scalar.
+
+    The ``{from_spectral_type: <table>}`` resolver form cannot be resolved here
+    (it needs the target's spectrum and distance); it is returned as a
+    :class:`FromSpectralType` marker for :class:`~.target.SpectrumTarget` to
+    resolve at load time.
     """
     # ---- shape dispatch --------------------------------------------------
     if isinstance(brightness, Mapping):
         if "from_spectral_type" in brightness:
-            raise NotImplementedError(
-                "brightness: {from_spectral_type: ...} is the Phase 5 resolver "
-                "(see defining_brightness.md); not yet implemented."
-            )
+            table = brightness["from_spectral_type"]
+            if not isinstance(table, str):
+                raise BrightnessError(
+                    "E2",
+                    "from_spectral_type must name a lookup table (a string), "
+                    f"not {type(table).__name__}",
+                )
+            extra = brightness.keys() - {"from_spectral_type", "band"}
+            if extra:
+                raise BrightnessError(
+                    "E2",
+                    "from_spectral_type takes only an optional 'band', "
+                    f"got unexpected keys {sorted(extra)}",
+                )
+            return FromSpectralType(table=table, band=brightness.get("band", "V"))
         locator_key = {"band", "wavelength", "frequency"} & brightness.keys()
         if len(locator_key) != 1 or "value" not in brightness:
-            raise _err(
+            raise BrightnessError(
                 "E2",
                 "canonical brightness needs exactly one of "
                 "band/wavelength/frequency plus a 'value'",
@@ -326,7 +391,7 @@ def parse_brightness(brightness: object) -> Brightness:
         field_system = brightness.get("system")
     elif isinstance(brightness, Sequence) and not isinstance(brightness, str):
         if len(brightness) != 2:
-            raise _err(
+            raise BrightnessError(
                 "E2", "tuple brightness must be exactly (locator, amount)"
             )
         loc_kind, loc = _parse_locator(brightness[0])
@@ -342,9 +407,9 @@ def parse_brightness(brightness: object) -> Brightness:
     system = amount.system
     if field_system is not None:
         if amount.kind is not AmountKind.MAG:
-            raise _err("E4")
+            raise BrightnessError("E4")
         if amount.system is not None:
-            raise _err("E5")
+            raise BrightnessError("E5")
         system = (
             field_system
             if isinstance(field_system, PhotometricSystem)
@@ -353,7 +418,7 @@ def parse_brightness(brightness: object) -> Brightness:
 
     if amount.kind is AmountKind.MAG:
         if loc_kind is not LocatorKind.BAND:
-            raise _err("E3")
+            raise BrightnessError("E3")
         if system is None:
             system = PhotometricSystem.VEGA
     else:

@@ -149,6 +149,7 @@ class BrightnessProfile(ParametrizedTarget):
         spectrum: SPECTRUM_TYPE | None = None,
         brightness: BRIGHTNESS_TYPE | None = None,
         params: Mapping[str, u.Quantity | Number] | None = None,
+        anchor: str | None = None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -156,6 +157,8 @@ class BrightnessProfile(ParametrizedTarget):
             self.spectrum = spectrum
         if brightness is not None:
             self.brightness = brightness
+        if anchor is not None:
+            self.anchor = anchor
 
         params = {
             k: self._coerce_param(k, v) for k, v in dict(params or {}).items()
@@ -263,10 +266,9 @@ class BrightnessProfile(ParametrizedTarget):
         weightmap, hdr = self._weightmap(optical_train)
         hdu = fits.ImageHDU(header=hdr, data=weightmap)
 
+        # _scale_spectrum resolves, redshifts, and flux-scales in the normative
+        # order (redshift before the anchor scale).
         spectrum = self._scale_spectrum(optical_train)
-        # Position guard: never touch self.position when it was never set.
-        if getattr(self, "_position", None) is not None:
-            spectrum = self.redshift_spectrum(spectrum, self.position)
 
         return Source(field=ImageSourceField(hdu, spectra={0: spectrum}))
 
@@ -274,47 +276,58 @@ class BrightnessProfile(ParametrizedTarget):
         """The integrated brightness the spectrum is scaled to.
 
         Integrated brightness passes through unchanged. A surface brightness is
-        reduced to the equivalent integrated magnitude,
-        ``SB_mag - 2.5 log10(A_eff / solid_angle)`` -- the amplitude *is* the
-        surface brightness at the profile's reference point, so
-        ``total = SB * A_eff`` holds uniformly, with ``A_eff`` the analytic
-        total for finite profiles or the field of view for non-integrable ones
-        (see :meth:`_effective_area`). The log keeps the conversion in linear
-        space (never per-pixel magnitude area-scaling). Non-magnitude surface
-        brightness (e.g. ``Jy / sr``) needs the synphot linear conversion and
-        lands with the flux-authority increment.
+        reduced to the equivalent integrated amount over the effective area,
+        with ``A_eff`` the analytic total for finite profiles or the field of
+        view for non-integrable ones (see :meth:`_effective_area`):
+
+        * magnitude: ``SB_mag - 2.5 log10(A_eff / solid_angle)`` -- the log
+          keeps the conversion in linear space (never per-pixel magnitude
+          area-scaling);
+        * linear (flux density / energy flux per solid angle):
+          ``total = SB * A_eff``, which strips the per-solid-angle divisor.
+
+        Both express the one rule ``total = SB * A_eff`` at the profile's
+        reference point (the amplitude *is* the surface brightness there); they
+        differ only because magnitudes are logarithmic. The result is an
+        integrated amount the shared scaler handles uniformly.
         """
         b = self.brightness
         if not b.is_surface_brightness:
             return b
-        if b.amount_kind is not AmountKind.MAG:
-            raise NotImplementedError(
-                "non-magnitude surface brightness (e.g. 'Jy / sr') is not "
-                "implemented yet"
-            )
-        area = (self._effective_area(optical_train) / b.solid_angle).to_value(
-            u.dimensionless_unscaled
-        )
-        implied = b.value - 2.5 * np.log10(area) * u.mag
+        area = self._effective_area(optical_train)
+        if b.amount_kind is AmountKind.MAG:
+            ratio = (area / b.solid_angle).to_value(u.dimensionless_unscaled)
+            implied = b.value - 2.5 * np.log10(ratio) * u.mag
+        else:
+            # e.g. (MJy / sr) * arcsec2 -> MJy; (W / (m2 arcsec2)) * arcsec2 -> W/m2
+            implied = (b.value * area).to(b.value.unit * b.solid_angle)
         return replace(b, value=implied, solid_angle=None)
 
     def _scale_spectrum(self, optical_train):
-        """Resolve and flux-scale the spectrum to the (integrated) brightness.
+        """Resolve, redshift, and flux-scale the spectrum to the brightness.
 
-        Interim: reuses the Vega-magnitude scaling path via the effective
-        integrated brightness. Full flux-authority dispatch (flux density /
-        energy flux, AB/ST systems, wavelength or frequency locators) arrives
-        with the flux-authority increment; until then, non-Vega and non-band
-        forms raise clearly via the ``Brightness`` shims.
+        Order matches the point-source path and the normative pipeline
+        (rest SED -> redshift -> [screens] -> anchor): the flux-authority scale
+        is applied last, on the redshifted spectrum. A surface brightness has
+        already been reduced to an integrated amount by
+        :meth:`_effective_integrated_brightness`, so the shared
+        :meth:`~.target.SpectrumTarget._get_spectrum_scale` sees an integrated
+        brightness and never raises E7.
+
+        Blackbody spectra are the one exception: spextra bakes the flux scale
+        into construction (see
+        :meth:`~.target.SpectrumTarget._blackbody_amplitude`), so they are
+        already normalized and only need redshifting.
         """
         brightness = self._effective_integrated_brightness(optical_train)
+        spectrum = self.resolve_spectrum(self.spectrum, brightness)
+        if getattr(self, "_position", None) is not None:
+            spectrum = self.redshift_spectrum(spectrum, self.position)
         if isinstance(self.spectrum, str) and self.spectrum.startswith(
             "blackbody:"
         ):
-            return self.resolve_spectrum(self.spectrum, brightness)
-        return self.resolve_spectrum(self.spectrum).scale_to_magnitude(
-            brightness.mag, brightness.band
-        )
+            return spectrum
+        return spectrum * self._anchored_spectrum_scale(spectrum, brightness)
 
 
 class Box(BrightnessProfile):
