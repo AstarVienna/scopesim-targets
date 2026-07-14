@@ -30,10 +30,19 @@ from .brightness import (
     FromSpectralType,
     LocatorError,
 )
+from .attenuation import ATTENUATION_COLUMN
 
 
 class PointSourceTarget(SpectrumTarget):
-    """Base class for Point Source Targets."""
+    """Base class for Point Source Targets.
+
+    Dust: the foreground ``extinction`` screen is applied in place to the
+    emitted ``source_spectra`` (uniform over the target, dedup intact); the
+    source-side ``attenuation`` column is emitted per table row for the
+    simulation engine (see :mod:`.attenuation`).
+    """
+
+    _accepts_attenuation = True
 
     def __init__(
         self,
@@ -41,6 +50,8 @@ class PointSourceTarget(SpectrumTarget):
         spectrum: SPECTRUM_TYPE | None = None,
         brightness: BRIGHTNESS_TYPE | None = None,
         anchor: str | None = None,
+        extinction=None,
+        attenuation=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -50,6 +61,10 @@ class PointSourceTarget(SpectrumTarget):
             self.brightness = brightness
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
+        if attenuation is not None:
+            self.attenuation = attenuation
 
     def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
@@ -64,12 +79,12 @@ class PointSourceTarget(SpectrumTarget):
         """Convert to table for Source conversion."""
         tbl = self._create_source_table()
         tbl.add_row(self._to_table_row(local_frame))
-        return tbl
+        return self._apply_table_attenuation(tbl)
 
     def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
-        """Create spectra dict for Source conversion."""
+        """Create spectra dict for Source conversion (foreground-reddened)."""
         # TODO: Deal with redshift from position!
-        return {start: self.resolve_spectrum(self.spectrum)}
+        return {start: self._redden(self.resolve_spectrum(self.spectrum))}
 
     def _create_source_table(self) -> Table:
         tbl = Table(
@@ -198,6 +213,8 @@ class Binary(PointSourceTarget):
         brightness: BRIGHTNESS_TYPE | Sequence[BRIGHTNESS_TYPE] | None = None,
         contrast: float | None = None,
         anchor: str | None = None,
+        extinction=None,
+        attenuation=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -205,6 +222,10 @@ class Binary(PointSourceTarget):
             self.offset = offset
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
+        if attenuation is not None:
+            self.attenuation = attenuation
 
         if spectra is not None:
             self.primary_spectrum, self.secondary_spectrum = spectra
@@ -387,13 +408,13 @@ class Binary(PointSourceTarget):
 
         tbl.add_row(primary)
         tbl.add_row(secondary)
-        return tbl
+        return self._apply_table_attenuation(tbl)
 
     def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
-        """Create spectra dict for Source conversion."""
+        """Create spectra dict for Source conversion (foreground-reddened)."""
         spectra = {
-            start: self.resolve_spectrum(self.primary_spectrum),
-            start + 1: self.resolve_spectrum(self.secondary_spectrum),
+            start: self._redden(self.resolve_spectrum(self.primary_spectrum)),
+            start + 1: self._redden(self.resolve_spectrum(self.secondary_spectrum)),
         }
         return spectra
 
@@ -418,6 +439,7 @@ class Exoplanet(PointSourceTarget):
         brightness: BRIGHTNESS_TYPE | None = None,
         contrast: float | None = None,
         anchor: str | None = None,
+        extinction=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -431,6 +453,8 @@ class Exoplanet(PointSourceTarget):
             self.contrast = contrast
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
     @property
     def spectrum(self):
@@ -499,6 +523,8 @@ class PlanetarySystem(PointSourceTarget):
         ):
             spectrum = component.resolve_spectrum(component.spectrum)
             spectrum = self.redshift_spectrum(spectrum, self.position)
+            # Same sightline as the primary: stand-in for the scene cascade.
+            spectrum = self.primary._redden(spectrum)
 
             x_arcsec, y_arcsec = self._xy_arcsec_position(
                 component.resolve_position(self.position),
@@ -511,6 +537,10 @@ class PlanetarySystem(PointSourceTarget):
                 "weight": table[0]["weight"] / component.contrast,
                 "ref": ref,
             }
+            if ATTENUATION_COLUMN in table.colnames:
+                # The planet sits inside the primary's dust (same envelope /
+                # cloud), so it inherits the primary's column.
+                row[ATTENUATION_COLUMN] = table[0][ATTENUATION_COLUMN]
 
             table.add_row(row)
             spectra[ref] = spectrum
@@ -585,6 +615,9 @@ class StarField(PointSourceTarget):
         brightnesses: Sequence[BRIGHTNESS_TYPE] | None = None,
         band: str | None = None,  # TODO: Proper typing
         position: POSITION_TYPE | None = None,
+        anchor: str | None = None,
+        extinction=None,
+        attenuation=None,
     ) -> None:
         # Length consistency is checked by each setter against the attributes
         # already set, so no up-front guard (which could not know about a
@@ -601,6 +634,12 @@ class StarField(PointSourceTarget):
             self.spectra = spectra
         if brightnesses is not None:
             self.brightnesses = brightnesses
+        if anchor is not None:
+            self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
+        if attenuation is not None:
+            self.attenuation = attenuation
 
     @classmethod
     def from_grid(
@@ -1166,6 +1205,12 @@ class StarField(PointSourceTarget):
         table.meta["x_unit"] = "arcsec"
         table.meta["y_unit"] = "arcsec"
 
+        self._apply_table_attenuation(table)
+        # Foreground screen in place on the deduplicated spectra (one screen
+        # per field, so N stars still share their templates).
+        resolved_spectra = {
+            ref: self._redden(spec) for ref, spec in resolved_spectra.items()
+        }
         return Source(field=TableSourceField(table, spectra=resolved_spectra))
 
 

@@ -57,6 +57,18 @@ class TestStar:
         )
         assert isinstance(tgt, Star)
 
+    def test_attenuation_kwarg_emits_column(self):
+        src = Star(
+            position=(0, 0), spectrum="A0V", brightness=("V", 10),
+            extinction="0.5 mag", attenuation={"value": "1 mag", "band": "V", "rv": 4.5},
+        ).to_source()
+        table = src.fields[0].field
+        np.testing.assert_allclose(table["attenuation"], [1.0])
+        assert table.meta["attenuation_model"] == "screen"
+        assert table.meta["attenuation_rv"] == 4.5
+        assert table.meta["anchor"] == "observed"
+        assert "Av" not in table.colnames         # the screen is in the spectrum
+
 
 @pytest.fixture
 def basic_binary():
@@ -260,6 +272,17 @@ class TestPlanetarySystem:
         ).to_source()
         assert len(src.fields[0]) == 2  # primary and one planet
 
+    def test_planets_inherit_primary_attenuation(self):
+        # The planet sits inside the primary's dust, so it gets the same column.
+        src = PlanetarySystem(
+            position=(0, 0),
+            primary=Star(spectrum="A0V", brightness=("V", 10), attenuation="2 mag"),
+            components=[Exoplanet(contrast=1e5)],
+        ).to_source()
+        table = src.fields[0].field
+        np.testing.assert_array_equal(table["attenuation"], [2.0, 2.0])
+        assert table.meta["attenuation_model"] == "screen"
+
 
 class TestStarField:
     def test_to_source(self):
@@ -287,6 +310,83 @@ class TestStarField:
             tgt.spectra = ["A0V", "G2V"]
         with pytest.raises(ValueError):
             tgt.brightnesses = [5 * u.mag, 6 * u.mag]
+
+    def test_extinction_kwarg_resolves(self):
+        # E(B-V) -> A_V = R_V * E(B-V) needs no bandpass, so this stays offline.
+        from scopesim_targets.extinction import ExtinctionLaw
+
+        tgt = StarField(
+            positions=[(0, 0)],
+            spectra=["A0V"],
+            brightnesses=[5 * u.mag],
+            band="R",
+            extinction={"ebv": 0.3},
+        )
+        av, law, rv = tgt._resolved_extinction()
+        np.testing.assert_allclose(av, 0.93)
+        assert (law, rv) == (ExtinctionLaw.CCM89, 3.1)
+
+    def test_extinction_reddens_shared_spectra_in_place(self):
+        # The sightline is uniform over the field, so it goes into the emitted
+        # (still deduplicated) templates: no column, no meta, two A0V stars
+        # still share one SED -- which is now dimmed by ~A_V at V and less at K.
+        kwargs = dict(
+            positions=[(0, 0), (0, 1), (1, 0)],
+            spectra=["A0V", "G2V", "A0V"],
+            brightnesses=[5 * u.mag, 8 * u.mag, 6 * u.mag],
+            band="R",
+        )
+        plain = StarField(**kwargs).to_source().fields[0]
+        red = StarField(**kwargs, extinction={"ebv": 0.3}).to_source().fields[0]
+        assert len(red.spectra) == 2                           # dedup intact
+        assert "attenuation" not in red.field.colnames and "Av" not in red.field.colnames
+        assert "attenuation_model" not in red.field.meta
+        for ref in red.spectra:
+            ratio_v = float(red.spectra[ref](5500 * u.AA) / plain.spectra[ref](5500 * u.AA))
+            ratio_k = float(red.spectra[ref](22000 * u.AA) / plain.spectra[ref](22000 * u.AA))
+            np.testing.assert_allclose(ratio_v, 10 ** (-0.4 * 0.93), rtol=0.03)
+            assert ratio_k > ratio_v
+
+    def test_attenuation_column_broadcast_and_dedup(self):
+        # Dust at the source is emitted per row: one broadcast column in the
+        # model's native A_V + model/anchor meta; spectra untouched and deduped.
+        src = StarField(
+            positions=[(0, 0), (0, 1), (1, 0)],
+            spectra=["A0V", "G2V", "A0V"],
+            brightnesses=[5 * u.mag, 8 * u.mag, 6 * u.mag],
+            band="R",
+            attenuation={"ebv": 0.3},
+            anchor="intrinsic",
+        ).to_source()
+        table = src.fields[0].field
+        assert len(src.fields[0].spectra) == 2
+        np.testing.assert_allclose(table["attenuation"], [0.93, 0.93, 0.93])
+        assert table["attenuation"].unit == u.mag
+        assert table.meta["attenuation_model"] == "screen"
+        assert table.meta["attenuation_parameter"] == "Av"
+        assert table.meta["attenuation_law"] == "ccm89"
+        assert table.meta["attenuation_rv"] == 3.1
+        assert table.meta["anchor"] == "intrinsic"
+
+    def test_sampled_attenuation_rejected_on_star_field(self):
+        from scopesim_targets.attenuation import AttenuationError
+
+        with pytest.raises(AttenuationError):
+            StarField(
+                positions=[(0, 0)], spectra=["A0V"], brightnesses=[5 * u.mag], band="R",
+                attenuation={"distribution": "uniform", "params": {"low": 0, "high": 1}},
+            )
+
+    def test_no_dust_has_no_attenuation_column(self):
+        src = StarField(
+            positions=[(0, 0), (0, 1)],
+            spectra=["A0V", "G2V"],
+            brightnesses=[5 * u.mag, 8 * u.mag],
+            band="R",
+        ).to_source()
+        table = src.fields[0].field
+        assert "attenuation" not in table.colnames and "Av" not in table.colnames
+        assert "attenuation_model" not in table.meta
 
 
 @pytest.fixture

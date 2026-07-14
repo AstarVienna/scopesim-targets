@@ -16,6 +16,16 @@ from scopesim import Source
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .flux_scaling import synphot_flux_scale, scale_group_key, amount_ratio
+from .attenuation import (
+    parse_attenuation,
+    apply_attenuation_to_table,
+    AttenuationError,
+)
+from .extinction import (
+    parse_extinction,
+    resolve_extinction,
+    redden,
+)
 from .brightness import (
     parse_brightness,
     Brightness,
@@ -531,18 +541,137 @@ class SpectrumTarget(Target):
             spectrum, brightness, band=band, vegaspec=vegaspec
         )
 
-    def _select_anchor_sed(self, spectrum: SourceSpectrum) -> SourceSpectrum:
-        """Return the SED the flux scale should be applied to, per ``anchor``.
+    def _band_effective_wavelength(self, band: str) -> u.Quantity:
+        """Effective wavelength of ``band`` (for non-V extinction amounts)."""
+        passband = Passband(f"{FILTER_SYSTEM.name}/{band}")
+        return passband.avgwave()
 
-        ``observed`` scales the reddened SED; ``intrinsic``/``absolute`` scale
-        the unextincted SED (screens are then applied afterwards). Extinction
-        screens are not yet wired in, so ``spectrum`` here is already the
-        (un-screened) SED and every branch returns it unchanged -- this is the
-        single seam where the two frames will diverge once the ``extinction``
-        attribute lands, so the callers need no further change then.
+    # Attenuation (dust at the source) is a point-source attribute; profiles and
+    # scenes reject it (E22). Subclasses opt in by flipping this class flag.
+    _accepts_attenuation = False
+
+    @property
+    def extinction(self):
+        """Foreground dust screen (the *sightline*), or ``None`` for none.
+
+        Accepts the schema forms on assignment: bare ``"2.3 mag"`` A_V sugar
+        or the canonical mapping (``value``/``band`` | ``ebv`` | ``from_map``,
+        ``law``, ``rv``); ``"0 mag"`` is the explicit opt-out. Stored as one
+        :class:`~.extinction.ExtinctionScreen` (or a deferred
+        :class:`~.extinction.FromMap` marker). The former list form is
+        rejected (E17): screens of one law/R_V compose into one, and dust at
+        the source is :attr:`attenuation`. Cascades from the scene in the spec;
+        treated as a plain local attribute until the scene/role machinery
+        exists.
         """
-        # TODO(extinction): observed -> pass the screened SED; intrinsic/
-        # absolute -> pass the unextincted SED (screens applied after scaling).
+        return getattr(self, "_extinction", None)
+
+    @extinction.setter
+    def extinction(self, value):
+        self._extinction = None if value is None else parse_extinction(value)
+
+    @property
+    def attenuation(self):
+        """Dust at the *source* (natal cloud, envelope), or ``None`` for none.
+
+        Accepts bare ``"8.5 mag"`` sugar (``screen`` model, A_V) or the mapping
+        form (a dust column -- ``value``+``band`` | ``ebv`` | ``tau_v`` -- plus
+        ``model: screen|wg00`` and the model's own keys); stored as an
+        :class:`~.attenuation.Attenuation`. Never inherited. Only point-source
+        targets accept it (E22); the sampled ``distribution`` form is for
+        generative targets only (E21) -- see :mod:`.cluster`.
+        """
+        return getattr(self, "_attenuation", None)
+
+    @attenuation.setter
+    def attenuation(self, value):
+        if value is None:
+            self._attenuation = None
+            return
+        if not self._accepts_attenuation:
+            raise AttenuationError(
+                f"{type(self).__name__} does not take an attenuation"
+            )
+        parsed = parse_attenuation(value)
+        if parsed.is_sampled:
+            raise AttenuationError(
+                f"{type(self).__name__} is not generative; give a fixed column",
+            )
+        self._attenuation = parsed
+
+    def _resolved_extinction(self):
+        """Resolve ``self.extinction`` to ``(A_V, law, R_V)`` or ``None``.
+
+        Non-V band amounts are converted to A_V using the band's effective
+        wavelength (network-backed); the common V / E(B-V) / A_V-sugar cases
+        need no bandpass.
+        """
+        return resolve_extinction(
+            self.extinction,
+            band_wavelength_lookup=self._band_effective_wavelength,
+        )
+
+    def _redden(self, spectrum: SourceSpectrum) -> SourceSpectrum:
+        """Apply the *true* foreground screen curve to ``spectrum`` (identity if none).
+
+        The screen is uniform over a target, so it is applied to the emitted
+        SED **in place** for every field type: profiles redden their single SED,
+        point sources their (deduplicated) ``source_spectra``. Also used for the
+        ``observed`` anchor weight (below).
+        """
+        resolved = self._resolved_extinction()
+        if resolved is None:
+            return spectrum
+        av, law, rv = resolved
+        return redden(spectrum, av, law, rv)
+
+    def _attenuate(self, spectrum: SourceSpectrum) -> SourceSpectrum:
+        """Apply the attenuation curve to ``spectrum`` (identity if none).
+
+        Used **only** for the ``observed`` anchor weight: the emitted SED is
+        never attenuated here (the column varies per star in general and would
+        break dedup), it is delivered per row by :meth:`_apply_table_attenuation`
+        and applied by the simulation engine.
+        """
+        att = self.attenuation
+        if att is None:
+            return spectrum
+        amount = att.native_amount(
+            band_wavelength_lookup=self._band_effective_wavelength
+        )
+        return att.attenuate(spectrum, amount)
+
+    def _apply_table_attenuation(self, table):
+        """Add the per-row ``attenuation`` column + model/``anchor`` meta, if any.
+
+        The fixed column is broadcast to every row (one column per target in
+        v1; per-star columns come from the cluster distributions). Absent
+        attenuation, the table is returned untouched so the output stays
+        byte-identical and engines without support are unaffected. See
+        :func:`~.attenuation.apply_attenuation_to_table` for the contract.
+        """
+        if self.attenuation is None:
+            return table
+        table = apply_attenuation_to_table(
+            table,
+            self.attenuation,
+            band_wavelength_lookup=self._band_effective_wavelength,
+        )
+        table.meta["anchor"] = self.anchor.value
+        return table
+
+    def _select_anchor_sed(self, spectrum: SourceSpectrum) -> SourceSpectrum:
+        """Return the SED the flux scale should be computed against, per ``anchor``.
+
+        ``observed`` scales the *reddened and attenuated* SED (so the band flux
+        after all dust matches ``brightness`` -- dust then only changes
+        colours); ``intrinsic``/``absolute`` scale the bare SED (dust then dims
+        it). This is the one seam where the frames diverge: the weight is the
+        only thing that differs, so an engine applying the same per-row
+        attenuation curve for every anchor stays correct.
+        """
+        if self.anchor is AnchorFrame.OBSERVED:
+            return self._attenuate(self._redden(spectrum))
         return spectrum
 
     def _anchored_spectrum_scale(
@@ -558,7 +687,7 @@ class SpectrumTarget(Target):
 
         * ``observed`` / ``intrinsic`` -- the photometric scale as-is (they
           differ only in which SED is scaled, handled by
-          :meth:`_select_anchor_sed`; identical until extinction is wired in).
+          :meth:`_select_anchor_sed`).
         * ``absolute`` -- the value is the *absolute* amount (unextincted, at
           10 pc), so the photometric scale is multiplied by the achromatic
           inverse-square distance factor ``(10 pc / d)**2``. This applies

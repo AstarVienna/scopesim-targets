@@ -135,7 +135,7 @@ Two consequences, both physically correct rather than artefacts:
 ### Interpretation notes
 * **Integrated brightness** of an analytic profile means the total of the *analytic* model — not a surface brightness, and not the flux within the rendered field of view.
   Normalization uses the closed-form integral, so profile flux falling outside the simulated detector window is *not* redistributed into it.
-* **Observed vs. intrinsic**: whether `brightness` refers to the observed (extincted) or intrinsic value is controlled by the `anchor` attribute; default `observed`. The same rule applies to surface brightnesses. See [defining extinction](defining_extinction.md).
+* **Observed vs. intrinsic**: whether `brightness` refers to the observed (dust-dimmed) or intrinsic value is controlled by the `anchor` attribute; default `observed`. The same rule applies to surface brightnesses. See [defining extinction and attenuation](defining_extinction.md).
 
 ## Absolute magnitudes
 Absolute magnitudes need no new syntax: absolute-ness is not a property of the
@@ -150,8 +150,8 @@ anchor: absolute
 
 * `anchor: absolute` means: the value refers to the **unextincted** source at
   **10 pc**. The distance modulus from `position.distance` is applied first,
-  then extinction screens — so `absolute` implies `intrinsic` semantics
-  (extinction dims *and* reddens).
+  then the foreground extinction screen (and any source-side attenuation) — so
+  `absolute` implies `intrinsic` semantics (dust dims *and* reddens).
   Absolute magnitudes that are *not* corrected for extinction are deliberately
   not representable; convert before input.
 * A missing `distance` is an **error** — no default distance is assumed.
@@ -175,10 +175,11 @@ resolution happens at load time, and the resolved value **plus the table
 name/version** are recorded, keeping exports reproducible.
 The resolver yields the absolute magnitude for the spectral type and sets
 `anchor: absolute`; the ordinary machinery then applies the distance modulus
-(a missing `distance` is an error) and any extinction screens.
-Combined with a per-star extinction distribution, this makes a single star
-consistent with what the generative cluster classes do internally
-(isochrone magnitude → distance → screens).
+(a missing `distance` is an error), the foreground `extinction` screen and any
+`attenuation`.
+Combined with an `attenuation` column, this makes a single star consistent
+with what the generative cluster classes do internally
+(isochrone magnitude → distance → natal-cloud attenuation → foreground screen).
 
 ```{note}
 The lookup carries population assumptions (age, metallicity, luminosity

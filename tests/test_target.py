@@ -6,20 +6,30 @@ import pytest
 import numpy as np
 from numpy import testing as npt
 from astropy import units as u
+from astropy.table import Table
 from astropy.coordinates import SkyCoord, Angle
-from synphot import SourceSpectrum
+from synphot import SourceSpectrum, Observation
+from synphot.models import Empirical1D
 
 from astar_utils import SpectralType
+from spextra import Passband
 from spextra.exceptions import NotInLibraryError
 
 from scopesim_targets.brightness import (
     parse_brightness,
     BrightnessError,
     AnchorFrame,
-    FromSpectralType,
 )
 from scopesim_targets.point_source import Star
-from scopesim_targets.target import Target, SpectrumTarget, _passband
+from scopesim_targets.target import (
+    Target,
+    SpectrumTarget,
+    _passband,
+    FILTER_SYSTEM,
+)
+from scopesim_targets.extinction import ExtinctionLaw, ExtinctionError
+from scopesim_targets.attenuation import AttenuationModel, AttenuationError
+from scopesim_targets.spectral_classes import StellarParameters
 
 
 @pytest.fixture(scope="function")
@@ -43,6 +53,22 @@ def spectrum_target_subcls():
         def to_source(self, *args, **kwargs):
             pass
     return MockSpectrumTargetSubcls()
+
+
+@pytest.fixture(scope="function")
+def attenuating_target_subcls():
+    """Like ``spectrum_target_subcls``, but opted in to ``attenuation``.
+
+    ``SpectrumTarget`` rejects attenuation (E22: profiles/scenes); point-source
+    classes flip ``_accepts_attenuation``. This mock does the same so the table
+    helper and the weight seam can be tested without a real point source.
+    """
+    class MockAttenuatingTargetSubcls(SpectrumTarget):
+        _accepts_attenuation = True
+
+        def to_source(self, *args, **kwargs):
+            pass
+    return MockAttenuatingTargetSubcls()
 
 
 class TestTarget:
@@ -343,8 +369,6 @@ class TestFromSpectralTypeResolver:
     @pytest.mark.webtest
     def test_resolver_matches_manual_absolute(self):
         # T-B10: from_spectral_type is exactly a manual absolute-mag lookup.
-        from scopesim_targets.spectral_classes import StellarParameters
-
         row = StellarParameters().closest_spectral_type(SpectralType("K5V"))
         m_abs = u.Quantity(row["M_V"][0])
 
@@ -389,3 +413,184 @@ class TestAbsoluteDistanceModulusEndToEnd:
         s_app = t._anchored_spectrum_scale(spec, t.brightness)
 
         npt.assert_allclose(s_abs, s_app, rtol=1e-10)
+
+
+class TestExtinction:
+    """The ``extinction`` attribute: one foreground screen, applied in place.
+
+    Structural checks stay offline: A_V-sugar / E(B-V) resolution needs no
+    bandpass. The screen never produces a table column any more (it goes into
+    the emitted SED); the photometric observed-vs-intrinsic identity is the
+    webtest below.
+    """
+
+    def test_default_is_none(self, spectrum_target_subcls):
+        assert spectrum_target_subcls.extinction is None
+        assert spectrum_target_subcls._resolved_extinction() is None
+
+    def test_property_parses_and_stores(self, spectrum_target_subcls):
+        spectrum_target_subcls.extinction = "2 mag"
+        assert spectrum_target_subcls._resolved_extinction() == (
+            2.0, ExtinctionLaw.CCM89, 3.1,
+        )
+
+    def test_setting_none_clears(self, spectrum_target_subcls):
+        # Regression: the old setter fell through to parse_extinction(None) -> E14.
+        spectrum_target_subcls.extinction = "2 mag"
+        spectrum_target_subcls.extinction = None
+        assert spectrum_target_subcls.extinction is None
+
+    def test_ebv_resolves_to_av(self, spectrum_target_subcls):
+        spectrum_target_subcls.extinction = {"ebv": 0.3}
+        av, law, rv = spectrum_target_subcls._resolved_extinction()
+        npt.assert_allclose(av, 0.93)
+        assert (law, rv) == (ExtinctionLaw.CCM89, 3.1)
+
+    def test_zero_mag_is_explicit_opt_out(self, spectrum_target_subcls):
+        spectrum_target_subcls.extinction = "0 mag"
+        av, _, _ = spectrum_target_subcls._resolved_extinction()
+        assert av == 0.0
+        wave = np.geomspace(3000, 30000, 100) * u.AA
+        sed = SourceSpectrum(
+            Empirical1D,
+            points=wave,
+            lookup_table=np.ones(100) * 1e-14 * u.Unit("erg/(s cm2 AA)"),
+        )
+        assert spectrum_target_subcls._redden(sed) is sed
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            ({"value": "1 mag", "ebv": 0.2}),
+            (["0.3 mag", "1 mag"]),   # list form removed
+            ([]),                     # '[]' opt-out removed -> use '0 mag'
+        ],
+    )
+    def test_bad_extinction_raises(self, spectrum_target_subcls, spec):
+        with pytest.raises(ExtinctionError):
+            spectrum_target_subcls.extinction = spec
+
+    def test_redden_applies_screen_in_place(self, spectrum_target_subcls):
+        # The sightline goes into the SED for every field type (no Av column).
+        wave = np.geomspace(3000, 30000, 300) * u.AA
+        sed = SourceSpectrum(
+            Empirical1D,
+            points=wave,
+            lookup_table=np.ones(300) * 1e-14 * u.Unit("erg/(s cm2 AA)"),
+        )
+        spectrum_target_subcls.extinction = "2 mag"
+        red = spectrum_target_subcls._redden(sed)
+        ratio_v = (red(5500 * u.AA) / sed(5500 * u.AA)).value
+        ratio_k = (red(22000 * u.AA) / sed(22000 * u.AA)).value
+        npt.assert_allclose(ratio_v, 10 ** (-0.4 * 2.0), rtol=0.03)   # dims by ~A_V
+        assert ratio_k > ratio_v                                        # and reddens
+
+    @pytest.mark.webtest
+    def test_observed_vs_intrinsic_weight_ratio(self, spectrum_target_subcls):
+        # T-B8 (point-source form). The observed weight is set against the
+        # reddened SED and the intrinsic against the bare one, so the weight
+        # ratio is 1 / T_band (a bigger weight compensates the dimming that
+        # ScopeSim will apply). ~1/0.1583 ≈ 6.3 for A_V=2 (CCM89, R_V=3.1).
+        t = spectrum_target_subcls
+        t.spectrum = "G2V"
+        spec = t.resolve_spectrum(t.spectrum)
+        t.brightness = ("V", "15 mag(AB)")
+        t.extinction = "2 mag"
+
+        t.anchor = "observed"
+        w_obs = t._anchored_spectrum_scale(spec, t.brightness)
+        t.anchor = "intrinsic"
+        w_int = t._anchored_spectrum_scale(spec, t.brightness)
+
+        pb = Passband(f"{FILTER_SYSTEM.name}/V")
+        t_band = (
+            Observation(t._redden(spec), pb).effstim("erg / (s cm2 AA)").value
+            / Observation(spec, pb).effstim("erg / (s cm2 AA)").value
+        )
+        npt.assert_allclose(w_obs / w_int, 1.0 / t_band, rtol=1e-6)
+
+
+class TestAttenuation:
+    """The ``attenuation`` attribute: dust at the source, emitted per row.
+
+    Offline: parsing, the E21/E22 gates, and the table helper on a hand-built
+    table. The ``observed`` weight against the attenuated SED is the webtest.
+    """
+
+    def test_default_is_none(self, attenuating_target_subcls):
+        assert attenuating_target_subcls.attenuation is None
+
+    def test_profiles_and_scenes_reject_it_E22(self, spectrum_target_subcls):
+        with pytest.raises(AttenuationError):
+            spectrum_target_subcls.extinction = "1 mag"      # fine: the sightline
+            spectrum_target_subcls.attenuation = "1 mag"     # not on a bare SpectrumTarget
+
+    def test_property_parses_and_stores(self, attenuating_target_subcls):
+        t = attenuating_target_subcls
+        t.attenuation = {"value": "1.5 mag", "rv": 4.5}
+        assert t.attenuation.model is AttenuationModel.SCREEN
+        assert t.attenuation.rv == 4.5 and not t.attenuation.is_sampled
+        assert t.attenuation.native_amount() == 1.5
+        t.attenuation = None
+        assert t.attenuation is None
+
+    def test_sampled_form_is_generative_only_E21(self, attenuating_target_subcls):
+        with pytest.raises(AttenuationError):
+            attenuating_target_subcls.attenuation = {
+                "distribution": "uniform", "params": {"low": "0 mag", "high": "1 mag"},
+            }
+
+    def test_table_helper_adds_column_and_meta(self, attenuating_target_subcls):
+        t = attenuating_target_subcls
+        t.attenuation = "2 mag"
+        t.extinction = "1 mag"        # the screen must NOT show up in the table
+        t.anchor = "intrinsic"
+        tbl = Table(names=["x", "y", "ref", "weight"])
+        tbl.add_row([0.0, 0.0, 0, 1.0])
+        out = t._apply_table_attenuation(tbl)
+        assert "attenuation" in out.colnames and out["attenuation"][0] == 2.0
+        assert out["attenuation"].unit == u.mag
+        assert out.meta["attenuation_model"] == "screen"
+        assert out.meta["attenuation_parameter"] == "Av"
+        assert out.meta["attenuation_law"] == "ccm89"
+        assert out.meta["attenuation_rv"] == 3.1
+        assert out.meta["anchor"] == "intrinsic"
+        assert "Av" not in out.colnames and "extinction_law" not in out.meta
+
+    def test_table_helper_noop_without_attenuation(self, attenuating_target_subcls):
+        attenuating_target_subcls.extinction = "2 mag"   # screen alone: no column
+        tbl = Table(names=["x", "y", "ref", "weight"])
+        tbl.add_row([0.0, 0.0, 0, 1.0])
+        out = attenuating_target_subcls._apply_table_attenuation(tbl)
+        assert out.colnames == ["x", "y", "ref", "weight"]
+        assert not out.meta
+
+    def test_attenuate_is_identity_without_attenuation(self, attenuating_target_subcls):
+        wave = np.geomspace(3000, 30000, 100) * u.AA
+        sed = SourceSpectrum(Empirical1D, points=wave,
+                             lookup_table=np.ones(100) * 1e-14 * u.Unit("erg/(s cm2 AA)"))
+        assert attenuating_target_subcls._attenuate(sed) is sed
+
+    @pytest.mark.webtest
+    def test_observed_weight_compensates_attenuation_too(self, attenuating_target_subcls):
+        # Same identity as for the screen, with both dust slots set: the observed
+        # weight is set against attenuate(redden(SED)), so w_obs/w_int = 1/(T_ext*T_att).
+        t = attenuating_target_subcls
+        t.spectrum = "G2V"
+        spec = t.resolve_spectrum(t.spectrum)
+        t.brightness = ("V", "15 mag(AB)")
+        t.extinction = "1 mag"
+        t.attenuation = {"value": "1.5 mag", "rv": 4.5}
+
+        t.anchor = "observed"
+        w_obs = t._anchored_spectrum_scale(spec, t.brightness)
+        t.anchor = "intrinsic"
+        w_int = t._anchored_spectrum_scale(spec, t.brightness)
+
+        pb = Passband(f"{FILTER_SYSTEM.name}/V")
+        dusty = t._attenuate(t._redden(spec))
+        t_band = (
+            Observation(dusty, pb).effstim("erg / (s cm2 AA)").value
+            / Observation(spec, pb).effstim("erg / (s cm2 AA)").value
+        )
+        npt.assert_allclose(w_obs / w_int, 1.0 / t_band, rtol=1e-6)

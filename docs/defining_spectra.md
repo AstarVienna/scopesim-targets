@@ -36,10 +36,15 @@ All shifts are done by the tools (e.g. `ScopeSim`) using the target definitions,
 in the following normative order:
 
 1. rest-frame spectrum,
-2. Doppler/cosmological shift (`radial_velocity` or `z`, see [defining positions](defining_positions.md)),
-3. extinction screens, applied in the *observer* frame (see [defining extinction](defining_extinction.md)),
-4. flux anchoring to `brightness` (see [defining brightness](defining_brightness.md));
+2. attenuation by dust *at the source* (natal cloud, envelope), in the source
+   frame (see [defining extinction and attenuation](defining_extinction.md)),
+3. Doppler/cosmological shift (`radial_velocity` or `z`, see [defining positions](defining_positions.md)),
+4. the foreground extinction screen, applied in the *observer* frame,
+5. flux anchoring to `brightness` (see [defining brightness](defining_brightness.md));
    for `anchor: absolute`, the (achromatic) distance modulus is part of this step.
 
-This ordering matters: Galactic dust sits between the observer and everything
-else, so extinction acts on observed wavelengths, after any redshift.
+This ordering matters: the source's own dust sits at the source and acts on
+rest wavelengths, whereas Galactic dust sits between the observer and everything
+else and acts on observed wavelengths, after any redshift.
+(v1 engines apply the per-row attenuation column at observed wavelengths, which
+is exact for the $z \approx 0$ science cases.)
