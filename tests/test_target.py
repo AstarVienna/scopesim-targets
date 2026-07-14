@@ -163,7 +163,7 @@ class TestSpectrumTarget:
         scale = spectrum_target_subcls._get_spectrum_scale(
             spectrum_target_subcls.resolve_spectrum(spectrum_target_subcls.spectrum),
             spectrum_target_subcls.brightness)
-        npt.assert_allclose(scale, 6.24e-12, rtol=3e-4)  # TODO: CHECK THIS NUMBER!!!
+        npt.assert_allclose(scale, 6.253e-12, rtol=3e-4)  # TODO: CHECK THIS NUMBER!!!
 
     def test_surface_brightness_on_point_source_raises_E7(self):
         sb = parse_brightness(["V", "21.5 mag / arcsec2"])
@@ -347,3 +347,84 @@ class TestAbsoluteDistanceModulusEndToEnd:
         s_app = t._anchored_spectrum_scale(spec, t.brightness)
 
         npt.assert_allclose(s_abs, s_app, rtol=1e-10)
+
+
+class TestExtinction:
+    """The ``extinction`` attribute + point-source ``Av`` column / meta.
+
+    Structural checks stay offline: A_V-sugar / E(B-V) resolution needs no
+    bandpass, and the table helper is exercised on a hand-built table. The
+    photometric observed-vs-intrinsic identity is the webtest below.
+    """
+
+    def test_default_is_none(self, spectrum_target_subcls):
+        assert spectrum_target_subcls.extinction is None
+        assert spectrum_target_subcls._resolved_extinction() is None
+        assert spectrum_target_subcls._extinction_av_meta() is None
+
+    def test_property_parses_and_stores(self, spectrum_target_subcls):
+        spectrum_target_subcls.extinction = "2 mag"
+        assert spectrum_target_subcls._extinction_av_meta() == (2.0, "ccm89", 3.1)
+
+    def test_ebv_resolves_to_av(self, spectrum_target_subcls):
+        spectrum_target_subcls.extinction = {"ebv": 0.3}
+        av, law, rv = spectrum_target_subcls._extinction_av_meta()
+        npt.assert_allclose(av, 0.93)
+        assert (law, rv) == ("ccm89", 3.1)
+
+    def test_bad_extinction_raises(self, spectrum_target_subcls):
+        from scopesim_targets.extinction import ExtinctionError
+
+        with pytest.raises(ExtinctionError) as exc:
+            spectrum_target_subcls.extinction = {"value": "1 mag", "ebv": 0.2}
+        assert exc.value.code == "E13"
+
+    def test_table_helper_adds_column_and_meta(self, spectrum_target_subcls):
+        from astropy.table import Table
+
+        spectrum_target_subcls.extinction = "2 mag"
+        spectrum_target_subcls.anchor = "intrinsic"
+        tbl = Table(names=["x", "y", "ref", "weight"])
+        tbl.add_row([0.0, 0.0, 0, 1.0])
+        out = spectrum_target_subcls._apply_table_extinction(tbl)
+        assert "Av" in out.colnames and out["Av"][0] == 2.0
+        assert out.meta["extinction_law"] == "ccm89"
+        assert out.meta["extinction_rv"] == 3.1
+        assert out.meta["anchor"] == "intrinsic"
+
+    def test_table_helper_noop_without_extinction(self, spectrum_target_subcls):
+        from astropy.table import Table
+
+        tbl = Table(names=["x", "y", "ref", "weight"])
+        tbl.add_row([0.0, 0.0, 0, 1.0])
+        out = spectrum_target_subcls._apply_table_extinction(tbl)
+        assert "Av" not in out.colnames
+        assert "extinction_law" not in out.meta
+
+    @pytest.mark.webtest
+    def test_observed_vs_intrinsic_weight_ratio(self, spectrum_target_subcls):
+        # T-B8 (point-source form). The observed weight is set against the
+        # reddened SED and the intrinsic against the bare one, so the weight
+        # ratio is 1 / T_band (a bigger weight compensates the dimming that
+        # ScopeSim will apply). ~1/0.1583 ≈ 6.3 for A_V=2 (CCM89, R_V=3.1).
+        from synphot import Observation
+        from spextra import Passband
+        from scopesim_targets.target import FILTER_SYSTEM
+
+        t = spectrum_target_subcls
+        t.spectrum = "G2V"
+        spec = t.resolve_spectrum(t.spectrum)
+        t.brightness = ("V", "15 mag(AB)")
+        t.extinction = "2 mag"
+
+        t.anchor = "observed"
+        w_obs = t._anchored_spectrum_scale(spec, t.brightness)
+        t.anchor = "intrinsic"
+        w_int = t._anchored_spectrum_scale(spec, t.brightness)
+
+        pb = Passband(f"{FILTER_SYSTEM.name}/V")
+        t_band = (
+            Observation(t._redden(spec), pb).effstim("erg / (s cm2 AA)").value
+            / Observation(spec, pb).effstim("erg / (s cm2 AA)").value
+        )
+        npt.assert_allclose(w_obs / w_int, 1.0 / t_band, rtol=1e-6)

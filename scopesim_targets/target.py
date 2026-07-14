@@ -16,6 +16,11 @@ from scopesim import Source
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .flux_scaling import synphot_flux_scale
+from .extinction import (
+    parse_extinction,
+    resolve_extinction,
+    redden,
+)
 from .brightness import (
     parse_brightness,
     Brightness,
@@ -519,18 +524,100 @@ class SpectrumTarget(Target):
             spectrum, brightness, band=band, vegaspec=vegaspec
         )
 
-    def _select_anchor_sed(self, spectrum: SourceSpectrum) -> SourceSpectrum:
-        """Return the SED the flux scale should be applied to, per ``anchor``.
+    def _band_effective_wavelength(self, band: str) -> u.Quantity:
+        """Effective wavelength of ``band`` (for non-V extinction amounts)."""
+        passband = Passband(f"{FILTER_SYSTEM.name}/{band}")
+        return passband.avgwave()
 
-        ``observed`` scales the reddened SED; ``intrinsic``/``absolute`` scale
-        the unextincted SED (screens are then applied afterwards). Extinction
-        screens are not yet wired in, so ``spectrum`` here is already the
-        (un-screened) SED and every branch returns it unchanged -- this is the
-        single seam where the two frames will diverge once the ``extinction``
-        attribute lands, so the callers need no further change then.
+    @property
+    def extinction(self):
+        """Line-of-sight dust screen(s), or ``None`` for no extinction.
+
+        Accepts the schema forms on assignment (bare ``"2.3 mag"`` A_V sugar, a
+        canonical mapping, or a list composed multiplicatively; ``[]`` is an
+        explicit opt-out). Stored normalized as a tuple of
+        :class:`~.extinction.ExtinctionScreen` (or a deferred
+        :class:`~.extinction.FromMap` marker). This is the fourth cascading
+        attribute in the spec, but is treated as a plain local attribute for now
+        (no inheritance until the scene/role machinery exists).
         """
-        # TODO(extinction): observed -> pass the screened SED; intrinsic/
-        # absolute -> pass the unextincted SED (screens applied after scaling).
+        return getattr(self, "_extinction", None)
+
+    @extinction.setter
+    def extinction(self, value):
+        if value is None:
+            self._extinction = None
+        self._extinction = parse_extinction(value)
+
+    def _resolved_extinction(self):
+        """Resolve ``self.extinction`` to ``(A_V, law, R_V)`` or ``None``.
+
+        Non-V band amounts are converted to A_V using the band's effective
+        wavelength (network-backed); the common V / E(B-V) / A_V-sugar cases
+        need no bandpass.
+        """
+        return resolve_extinction(
+            self.extinction,
+            band_wavelength_lookup=self._band_effective_wavelength,
+        )
+
+    def _redden(self, spectrum: SourceSpectrum) -> SourceSpectrum:
+        """Apply the *true* screen curve to ``spectrum`` (identity if none).
+
+        Used for the ``observed`` anchor weight (below) and for extended-source
+        output, which reddens its single SED in place. Point sources leave the
+        stored SED intact and carry A_V in the source table instead.
+        """
+        resolved = self._resolved_extinction()
+        if resolved is None:
+            return spectrum
+        av, law, rv = resolved
+        return redden(spectrum, av, law, rv)
+
+    def _extinction_av_meta(self):
+        """Resolved ``(A_V, law_name, R_V)`` for the source table, or ``None``.
+
+        Point sources carry extinction as a per-row ``Av`` column plus
+        ``law``/``rv`` in ``table.meta`` (rather than reddening the shared,
+        deduplicated SEDs), so ScopeSim can apply the curve at render time while
+        the spectra stay collapsed -- essential for large generated clusters.
+        """
+        resolved = self._resolved_extinction()
+        if resolved is None:
+            return None
+        av, law, rv = resolved
+        return av, law.value, rv
+
+    def _apply_table_extinction(self, table):
+        """Add the ``Av`` column + ``law``/``rv``/``anchor`` meta, if extincted.
+
+        A_V is broadcast to every row (one screen per target/table in v1;
+        per-star A_V arrives with the cluster extinction distribution). Absent
+        extinction, the table is returned untouched so no-extinction output
+        stays byte-identical and older ScopeSim versions are unaffected.
+        """
+        meta = self._extinction_av_meta()
+        if meta is None:
+            return table
+        av, law, rv = meta
+        table["Av"] = av
+        table.meta["extinction_law"] = law
+        table.meta["extinction_rv"] = rv
+        table.meta["anchor"] = self.anchor.value
+        return table
+
+    def _select_anchor_sed(self, spectrum: SourceSpectrum) -> SourceSpectrum:
+        """Return the SED the flux scale should be computed against, per ``anchor``.
+
+        ``observed`` scales the *reddened* SED (so the post-reddening band flux
+        matches ``brightness`` -- extinction then only changes colours);
+        ``intrinsic``/``absolute`` scale the unextincted SED (reddening then
+        dims it). This is the one seam where the frames diverge: the weight is
+        the only thing that differs between them, so a downstream consumer that
+        applies the true curve for every anchor stays correct.
+        """
+        if self.anchor is AnchorFrame.OBSERVED:
+            return self._redden(spectrum)
         return spectrum
 
     def _anchored_spectrum_scale(

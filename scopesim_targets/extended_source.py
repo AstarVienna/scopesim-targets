@@ -150,6 +150,7 @@ class BrightnessProfile(ParametrizedTarget):
         brightness: BRIGHTNESS_TYPE | None = None,
         params: Mapping[str, u.Quantity | Number] | None = None,
         anchor: str | None = None,
+        extinction=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -159,6 +160,8 @@ class BrightnessProfile(ParametrizedTarget):
             self.brightness = brightness
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
         params = {
             k: self._coerce_param(k, v) for k, v in dict(params or {}).items()
@@ -326,8 +329,14 @@ class BrightnessProfile(ParametrizedTarget):
         if isinstance(self.spectrum, str) and self.spectrum.startswith(
             "blackbody:"
         ):
-            return spectrum
-        return spectrum * self._anchored_spectrum_scale(spectrum, brightness)
+            scaled = spectrum  # spextra baked the scale in at construction
+        else:
+            scaled = spectrum * self._anchored_spectrum_scale(spectrum, brightness)
+        # Extended sources have a single SED (no dedup concern), so the screen is
+        # applied in place with the true curve. The scale is a scalar, so this
+        # commutes: w * (S * T) == (w * S) * T, and the anchor choice already
+        # lives in w (observed scales the reddened SED, intrinsic the bare one).
+        return self._redden(scaled)
 
 
 class Box(BrightnessProfile):

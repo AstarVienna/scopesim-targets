@@ -278,3 +278,45 @@ class TestStarField:
             tgt.spectra = ["A0V", "G2V"]
         with pytest.raises(ValueError):
             tgt.brightnesses = [5 * u.mag, 6 * u.mag]
+
+    def test_extinction_kwarg_resolves(self):
+        # E(B-V) -> A_V = R_V * E(B-V) needs no bandpass, so this stays offline.
+        tgt = StarField(
+            positions=[(0, 0)],
+            spectra=["A0V"],
+            brightnesses=[5 * u.mag],
+            band="R",
+            extinction={"ebv": 0.3},
+        )
+        av, law, rv = tgt._extinction_av_meta()
+        np.testing.assert_allclose(av, 0.93)
+        assert (law, rv) == ("ccm89", 3.1)
+
+    def test_extinction_column_broadcast_and_dedup(self):
+        # A single shared screen -> one broadcast Av column + law/rv/anchor meta,
+        # and the spectrum dedup is untouched (two A0V stars still share one SED).
+        src = StarField(
+            positions=[(0, 0), (0, 1), (1, 0)],
+            spectra=["A0V", "G2V", "A0V"],
+            brightnesses=[5 * u.mag, 8 * u.mag, 6 * u.mag],
+            band="R",
+            extinction={"ebv": 0.3},
+            anchor="intrinsic",
+        ).to_source()
+        table = src.fields[0].field
+        assert len(src.fields[0].spectra) == 2  # dedup intact despite extinction
+        np.testing.assert_allclose(table["Av"], [0.93, 0.93, 0.93])
+        assert table.meta["extinction_law"] == "ccm89"
+        assert table.meta["extinction_rv"] == 3.1
+        assert table.meta["anchor"] == "intrinsic"
+
+    def test_no_extinction_has_no_av_column(self):
+        src = StarField(
+            positions=[(0, 0), (0, 1)],
+            spectra=["A0V", "G2V"],
+            brightnesses=[5 * u.mag, 8 * u.mag],
+            band="R",
+        ).to_source()
+        table = src.fields[0].field
+        assert "Av" not in table.colnames
+        assert "extinction_law" not in table.meta

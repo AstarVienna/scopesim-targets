@@ -28,6 +28,7 @@ class PointSourceTarget(SpectrumTarget):
         spectrum: SPECTRUM_TYPE | None = None,
         brightness: BRIGHTNESS_TYPE | None = None,
         anchor: str | None = None,
+        extinction=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -37,6 +38,8 @@ class PointSourceTarget(SpectrumTarget):
             self.brightness = brightness
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
     def to_source(self) -> Source:
         """Convert to ScopeSim Source object."""
@@ -51,7 +54,7 @@ class PointSourceTarget(SpectrumTarget):
         """Convert to table for Source conversion."""
         tbl = self._create_source_table()
         tbl.add_row(self._to_table_row(local_frame))
-        return tbl
+        return self._apply_table_extinction(tbl)
 
     def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
         """Create spectra dict for Source conversion."""
@@ -185,6 +188,7 @@ class Binary(PointSourceTarget):
         brightness: BRIGHTNESS_TYPE | Sequence[BRIGHTNESS_TYPE] | None = None,
         contrast: float | None = None,
         anchor: str | None = None,
+        extinction=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -192,6 +196,8 @@ class Binary(PointSourceTarget):
             self.offset = offset
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
         if spectra is not None:
             self.primary_spectrum, self.secondary_spectrum = spectra
@@ -384,7 +390,7 @@ class Binary(PointSourceTarget):
 
         tbl.add_row(primary)
         tbl.add_row(secondary)
-        return tbl
+        return self._apply_table_extinction(tbl)
 
     def source_spectra(self, start: int = 0) -> dict[int, SourceSpectrum]:
         """Create spectra dict for Source conversion."""
@@ -415,6 +421,7 @@ class Exoplanet(PointSourceTarget):
         brightness: BRIGHTNESS_TYPE | None = None,
         contrast: float | None = None,
         anchor: str | None = None,
+        extinction=None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -428,6 +435,8 @@ class Exoplanet(PointSourceTarget):
             self.contrast = contrast
         if anchor is not None:
             self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
     @property
     def spectrum(self):
@@ -543,12 +552,18 @@ class StarField(PointSourceTarget):
         spectra: Sequence[SPECTRUM_TYPE] | None = None,
         brightnesses: Sequence[BRIGHTNESS_TYPE] | None = None,
         band: str | None = None,  # TODO: Proper typing
+        anchor: str | None = None,
+        extinction=None,
     ) -> None:
         guard_same_len(positions, spectra, brightnesses)
         self.band = band
         self.positions = positions
         self.spectra = spectra
         self.brightnesses = brightnesses
+        if anchor is not None:
+            self.anchor = anchor
+        if extinction is not None:
+            self.extinction = extinction
 
     @property
     def positions(self):
@@ -653,4 +668,5 @@ class StarField(PointSourceTarget):
         table.meta["x_unit"] = "arcsec"
         table.meta["y_unit"] = "arcsec"
 
+        self._apply_table_extinction(table)
         return Source(field=TableSourceField(table, spectra=resolved_spectra))

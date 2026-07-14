@@ -328,35 +328,44 @@ class TestAnchorOnProfiles:
             prof._anchored_spectrum_scale(None, prof.brightness)
         assert exc.value.code == "E11"
 
-    @pytest.mark.skip(
-        reason="T-B8: needs the extinction attribute/screens, which are 'to be "
-        "implemented' (defining_extinction.md). Written in final form; enable "
-        "once screens are applied in the normative pipeline."
-    )
+    @pytest.mark.webtest
     def test_observed_vs_intrinsic_surface_brightness_with_screen(
         self, optical_train
     ):
-        # T-B8. With a 2-mag extinction screen in the brightness band:
+        # T-B8. With a 2-mag (A_V) extinction screen:
         #   * observed: the reddened SED is scaled so band photometry matches the
-        #     SB value -> the anchored scale is unchanged at that band.
+        #     SB value -> the anchored scale is set against the reddened SED.
         #   * intrinsic: the unextincted SED is scaled to the SB value first,
-        #     then the screen dims it -> the realized band flux is fainter by the
-        #     screen transmission, 10**(-0.4 * 2) = 10**(-0.8).
-        # So intrinsic / observed == 10**(-0.8) at the brightness band.
-        screen = {"value": "2 mag", "band": "V"}
+        #     then the screen dims it -> realized band flux is fainter by the
+        #     band transmission.
+        # So intrinsic / observed == T_band at the brightness band. This is the
+        # *law-computed* transmission (CCM89, R_V=3.1), ~0.1583 for A_V=2, which
+        # differs at the third digit from the idealized 10**(-0.8)=0.15849
+        # because A(V_eff)/A(V) != 1 over a real V bandpass -- assert the law.
         common = dict(
             spectrum="G2V",
             brightness=("V", "18 mag / arcsec2"),
             params={"r_eff": 3, "n": 4},
-            extinction=screen,  # noqa: F821 - future API (extinction attribute)
+            extinction="2 mag",
         )
         observed = Sersic(anchor="observed", **common)
         intrinsic = Sersic(anchor="intrinsic", **common)
         s_obs = observed._scale_spectrum(optical_train)
         s_int = intrinsic._scale_spectrum(optical_train)
-        # Compare realized band flux of the two scaled spectra (ratio 10**-0.8).
         npt.assert_allclose(
             _band_flux(s_int, "V") / _band_flux(s_obs, "V"),
-            10 ** (-0.8),
-            rtol=1e-3,
+            0.1583,
+            rtol=1.5e-2,
         )
+
+
+def _band_flux(spectrum, band):
+    """Realized flux of ``spectrum`` through ``band`` (webtest helper)."""
+    from synphot import Observation
+    from spextra import Passband
+    from scopesim_targets.target import FILTER_SYSTEM
+
+    passband = Passband(f"{FILTER_SYSTEM.name}/{band}")
+    return Observation(spectrum, passband).effstim(
+        u.Unit("erg / (s cm2 AA)")
+    ).value
