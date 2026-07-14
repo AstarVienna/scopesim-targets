@@ -15,9 +15,11 @@ from ..plot_utils import figure_factory, draw_circle
 class Morphology:
     """Base class for stellar cluster morphologies."""
 
-    def __init__(self, n_stars: int):
+    def __init__(self, n_stars: int, rng: "np.random.Generator | None" = None):
         self._n_stars = n_stars
-        self._rng = np.random.default_rng()
+        # Accept an injected Generator so a cluster can seed pop/morph/extinction
+        # from one master seed; default stays unseeded for standalone use.
+        self._rng = rng if rng is not None else np.random.default_rng()
 
 
 class SphericallySymmetricalMorphology(Morphology):
@@ -26,8 +28,9 @@ class SphericallySymmetricalMorphology(Morphology):
 
 
 class KingProfileMorphology(SphericallySymmetricalMorphology):
-    def __init__(self, n_stars: int, r_core: float, r_tide: float):
-        super().__init__(n_stars=n_stars)
+    def __init__(self, n_stars: int, r_core: float, r_tide: float,
+                 rng: "np.random.Generator | None" = None):
+        super().__init__(n_stars=n_stars, rng=rng)
 
         class KingRadialProfile(KingProjectedAnalytic1D):
             def pdf(self, x):

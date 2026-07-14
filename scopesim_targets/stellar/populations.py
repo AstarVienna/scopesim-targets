@@ -23,8 +23,11 @@ HIGH_LOW_MASS_LIMIT = 1.07*u.solMass
 class Population:
     """Base class for stellar populations."""
 
-    def __init__(self, n_stars: int):
+    def __init__(self, n_stars: int, rng: "np.random.Generator | None" = None):
         self._n_stars = n_stars
+        # Injected Generator lets the cluster seed pop/morph/extinction from one
+        # master seed; default stays unseeded for standalone use.
+        self._rng = rng if rng is not None else np.random.default_rng()
         # TODO: Consider using a singelton-ish thing here
         self._stellar_params = StellarParameters()  # Default lookup table
 
@@ -38,8 +41,9 @@ class IMFPopulation(ZeroAgePopulation):
 
     imf: rv_continuous = DEFAULT_IMFS["kroupa02"]
 
-    def __init__(self, n_stars: int, imf: rv_continuous | None = None):
-        super().__init__(n_stars)
+    def __init__(self, n_stars: int, imf: rv_continuous | None = None,
+                 rng: "np.random.Generator | None" = None):
+        super().__init__(n_stars, rng=rng)
         if imf is not None:
             self.imf = imf
 
@@ -56,8 +60,7 @@ class IMFPopulation(ZeroAgePopulation):
         return cls(n_stars, imf)
 
     def sample_imf(self) -> u.Quantity[u.solMass]:
-        urng = np.random.default_rng()
-        rng = NumericalInversePolynomial(self.imf, center=0.1, random_state=urng)
+        rng = NumericalInversePolynomial(self.imf, center=0.1, random_state=self._rng)
         return rng.rvs(self._n_stars).round(3) * u.solMass
 
     def _masses_to_brightness(self, masses, absmag_col: str):
