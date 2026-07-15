@@ -36,7 +36,9 @@ from numbers import Number
 from collections.abc import Mapping, Sequence
 
 import astropy.units as u
+from synphot.units import VEGAMAG
 
+from .typing_utils import BRIGHTNESS_TYPE
 
 __all__ = [
     "Brightness",
@@ -47,7 +49,6 @@ __all__ = [
     "FromSpectralType",
     "BrightnessError",
     "parse_brightness",
-    "unit_includes_per_physical_type",
     "solid_angle_unit",
 ]
 
@@ -135,11 +136,6 @@ class BrightnessError(ValueError):
     """A brightness parse/consistency error, tagged with its matrix code."""
 
     _ERROR_DOCS = {
-        "E1": "amount unit of unrecognized physical type; see the dispatch table in defining_brightness.md",
-        "E2": "locator is neither band-shaped nor a length/frequency quantity; see the locator grammar",
-        "E3": "magnitude requires a band locator (monochromatic AB is a deferred discussion item)",
-        "E4": "'system' is only meaningful for magnitude amounts; see the photometric-systems section",
-        "E5": "'system' given both as a field and embedded in the amount string; see the photometric-systems section",
         "E6": "integrated amount on a profile without a finite analytic total; see the validity matrix",
         "E7": "surface-brightness amount on a point source; see the validity matrix",
         "E8": "reserved 'params' key (amplitude/x_0/y_0); see defining_brightness.md",
@@ -148,31 +144,58 @@ class BrightnessError(ValueError):
         "E11": "'anchor: absolute' with a surface-brightness amount (surface brightness is distance-invariant); see the absolute-magnitudes section",
         "E12": "'from_spectral_type' resolver on a non-SpectralType spectrum; see the spectral-type resolver section",
     }
+    code = None
 
-    def __init__(self, code: str, detail: str = "") -> None:
+    def __init__(self, code=None, detail="") -> None:
+        if self.code is not None:
+            super().__init__(code)
+            return
+
         self.code = code
         body = detail or self._ERROR_DOCS[code]
         pointer = "" if detail == "" else f" ({self._ERROR_DOCS[code]})"
         super().__init__(f"[{code}] {body}{pointer}")
 
 
-def unit_includes_per_physical_type(
-    unit: u.UnitBase, physical_type: str
-) -> bool:
-    """True if one of ``unit``'s bases is of ``1 / physical_type``."""
-    try:
-        bases, powers = unit.bases, unit.powers
-    except AttributeError:  # function units (e.g. ABmag) have no .bases
-        return False
-    return any(
-        1 / (base**power).physical_type == physical_type
-        for base, power in zip(bases, powers)
-    )
+class AmountError(BrightnessError):
+    """Amount unit of unrecognized physical type; see the dispatch table in
+    defining_brightness.md"""
+
+    code = "E1"
+
+
+class LocatorError(BrightnessError):
+    """Locator is neither band-shaped nor a length/frequency quantity; see the
+    locator grammar"""
+
+    code = "E2"
+
+
+class MissingBandError(BrightnessError):
+    """Magnitude requires a band locator."""
+
+    code = "E3"
+
+
+class SystemMismatchError(BrightnessError):
+    """'system' is only meaningful for magnitude amounts.
+
+    See the photometric-systems section."""
+
+    code = "E4"
+
+
+class SystemDuplicateError(BrightnessError):
+    """'system' given both as a field and embedded in the amount string.
+
+    See the photometric-systems section."""
+
+    code = "E5"
 
 
 def solid_angle_unit(unit: u.UnitBase) -> u.UnitBase | None:
     """Return the solid-angle unit (``sr``, ``arcsec2``, ...) of a per-Omega
-    unit, or ``None`` if ``unit`` carries no per-solid-angle divisor."""
+    unit, or ``None`` if `unit` carries no per-solid-angle divisor."""
     try:
         bases, powers = unit.bases, unit.powers
     except AttributeError:
@@ -218,12 +241,13 @@ _NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 # The system lives inside mag(...), never combined with the divisor -- we parse
 # it ourselves, so mag(Vega)/arcsec2 works even though astropy rejects it.
 _MAG_SB_TAIL = re.compile(r"\s*/\s*(arcsec2|sr)\s*$")
-_MAG_CORE = re.compile(rf"^\s*({_NUM})\s+mag(?:\((AB|ST|Vega)\))?\s*$")
+_MAG_CORE = re.compile(rf"^\s*({_NUM})\s+mag(?:\((AB|ST|Vega|VEGA)\))?\s*$")
 
 _SYSTEM = {
     "AB": PhotometricSystem.AB,
     "ST": PhotometricSystem.ST,
     "Vega": PhotometricSystem.VEGA,
+    "VEGA": PhotometricSystem.VEGA,
 }
 
 
@@ -248,26 +272,12 @@ def _parse_mag_string(s: str) -> _Amount:
         s = s[: tail.start()]
     core = _MAG_CORE.match(s)
     if core is None:  # pragma: no cover - guarded by caller
-        raise BrightnessError("E1", f"could not parse magnitude amount {s!r}")
+        raise AmountError(f"could not parse magnitude amount {s!r}")
     value = float(core.group(1)) * u.mag
     system = _SYSTEM[core.group(2)] if core.group(2) else None
     return _Amount(AmountKind.MAG, value, system, solid)
 
 
-# physical_type -> AmountKind. The dict is keyed on **PhysicalType objects**
-# (via ``u.get_physical_type``), never on strings: a ``PhysicalType`` is not
-# hash-compatible with its member strings (``hash(pt) != hash("energy flux")``),
-# so a string-keyed subscript ``lookup[unit.physical_type]`` KeyErrors for every
-# flux unit. ``str(pt)`` doesn't rescue it either -- composite types stringify as
-# the concatenation of their aliases (``W/m2`` -> "energy flux/irradiance";
-# ``erg/(s cm2 A)`` -> "power density/spectral flux density wav"), an internal
-# formatting detail with no cross-version guarantee. Keying on the registered
-# singleton sidesteps both: ``unit.physical_type`` returns that same singleton,
-# so lookup is identity-backed and alias-robust (``get_physical_type("irradiance")
-# is get_physical_type("energy flux")``), and a name astropy ever drops fails
-# loudly here at import rather than silently at lookup. The per-solid-angle
-# divisor (surface brightness / radiance) is stripped separately by
-# :func:`solid_angle_unit`; here it only selects the underlying flux kind.
 _FLUX_KINDS: dict[u.physical.PhysicalType, AmountKind] = {
     u.get_physical_type("spectral flux density"): AmountKind.FLUX_DENSITY_NU,
     u.get_physical_type("spectral flux density wav"): AmountKind.FLUX_DENSITY_LAM,
@@ -281,9 +291,9 @@ _FLUX_KINDS: dict[u.physical.PhysicalType, AmountKind] = {
 def _flux_kind(unit: u.UnitBase) -> AmountKind:
     kind = _FLUX_KINDS.get(unit.physical_type)
     if kind is None:
-        raise BrightnessError(
-            "E1",
-            f"unrecognized amount physical type {unit.physical_type!s} for unit {unit!s}",
+        raise AmountError(
+            f"unrecognized amount physical type {unit.physical_type!s} for "
+            f"unit {unit!s}",
         )
     return kind
 
@@ -291,6 +301,7 @@ def _flux_kind(unit: u.UnitBase) -> AmountKind:
 def _parse_amount(amount: object) -> _Amount:
     """Normalize a *how-much* value: Number | Quantity | str -> _Amount."""
     # bare number -> Vega magnitude (band-locator cross-check happens later, E3)
+    # TODO: use match here again
     if isinstance(amount, Number) and not isinstance(amount, bool):
         return _Amount(AmountKind.MAG, float(amount) * u.mag, None, None)
 
@@ -300,33 +311,38 @@ def _parse_amount(amount: object) -> _Amount:
         try:
             q = u.Quantity(amount)  # rejects function units (by design)
         except (TypeError, ValueError) as exc:
-            raise BrightnessError(
-                "E1", f"could not parse amount {amount!r}: {exc}"
-            ) from exc
+            raise AmountError(f"could not parse amount {amount!r}: {exc}") from exc
         return _parse_amount(q)
 
     if isinstance(amount, u.Quantity):
         unit = amount.unit
         # a plain-mag Quantity (resolver-fired 'N mag', or explicit mag SB)
-        if u.mag in getattr(unit, "bases", [unit]) or unit == u.mag:
+        mag_units = {u.mag, VEGAMAG, u.ABmag, u.STmag}
+        if u.mag in getattr(unit, "bases", [unit]) or unit in mag_units:
             solid = solid_angle_unit(unit)
-            return _Amount(AmountKind.MAG, amount.value * u.mag, None, solid)
+            try:
+                system = _SYSTEM[unit.physical_unit.to_string()]
+            except AttributeError:
+                system = PhotometricSystem.VEGA  # plain mag -> assume Vega
+            return _Amount(AmountKind.MAG, amount.value * u.mag, system, solid)
+
         kind = _flux_kind(unit)
         return _Amount(kind, amount, None, solid_angle_unit(unit))
 
-    raise BrightnessError("E1", f"unsupported amount type {type(amount).__name__}")
+    raise AmountError(f"unsupported amount type {type(amount).__name__}")
 
 
 def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
     """Normalize a *where* value: band string | wavelength/frequency."""
+    # TODO: use match here again
     if isinstance(locator, str) and _BAND_RE.match(locator):
         return LocatorKind.BAND, locator
     if isinstance(locator, str):
         try:
             locator = u.Quantity(locator)
         except (TypeError, ValueError) as exc:
-            raise BrightnessError(
-                "E2", f"locator {locator!r} is not a band or quantity: {exc}"
+            raise LocatorError(
+                f"locator {locator!r} is not a band or quantity: {exc}"
             ) from exc
     if isinstance(locator, u.Quantity):
         pt = locator.unit.physical_type
@@ -334,49 +350,45 @@ def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
             return LocatorKind.WAVELENGTH, locator
         if pt == "frequency":
             return LocatorKind.FREQUENCY, locator
-        raise BrightnessError(
-            "E2",
-            f"locator quantity has physical type {str(pt)!r} (need length or frequency)",
+        raise LocatorError(
+            f"locator quantity has physical type {str(pt)!r} "
+            "(need length or frequency)",
         )
-    raise BrightnessError("E2", f"unsupported locator type {type(locator).__name__}")
+    raise LocatorError(
+        f"unsupported locator type {type(locator).__name__}"
+    )
 
 
-def parse_brightness(brightness: object) -> "Brightness | FromSpectralType":
-    """Normalize any accepted ``brightness`` input into a :class:`Brightness`.
+def parse_brightness(brightness: BRIGHTNESS_TYPE) -> "Brightness | FromSpectralType":
+    """Normalize any accepted `brightness` input into a :class:`Brightness`.
 
     Accepts the tuple sugar ``(locator, amount)`` and the canonical mapping
     ``{band|wavelength|frequency: ..., value: ..., system: ...}``. Both slots
     accept ``str``, :class:`~astropy.units.Quantity` or (for the amount) a bare
     number, so behaviour is independent of whether the YAML implicit resolver
     fired on a scalar.
-
-    The ``{from_spectral_type: <table>}`` resolver form cannot be resolved here
-    (it needs the target's spectrum and distance); it is returned as a
-    :class:`FromSpectralType` marker for :class:`~.target.SpectrumTarget` to
-    resolve at load time.
     """
-    # ---- shape dispatch --------------------------------------------------
+    # shape dispatch
+    # TODO: use match here again
     if isinstance(brightness, Mapping):
-        if "from_spectral_type" in brightness:
-            table = brightness["from_spectral_type"]
+        if (table := brightness.get("from_spectral_type")) is not None:
             if not isinstance(table, str):
-                raise BrightnessError(
-                    "E2",
+                raise LocatorError(
                     "from_spectral_type must name a lookup table (a string), "
                     f"not {type(table).__name__}",
                 )
-            extra = brightness.keys() - {"from_spectral_type", "band"}
-            if extra:
-                raise BrightnessError(
-                    "E2",
+            if extra := brightness.keys() - {"from_spectral_type", "band"}:
+                raise LocatorError(
                     "from_spectral_type takes only an optional 'band', "
                     f"got unexpected keys {sorted(extra)}",
                 )
-            return FromSpectralType(table=table, band=brightness.get("band", "V"))
+            return FromSpectralType(
+                table=table, band=brightness.get("band", "V")
+            )
+
         locator_key = {"band", "wavelength", "frequency"} & brightness.keys()
         if len(locator_key) != 1 or "value" not in brightness:
-            raise BrightnessError(
-                "E2",
+            raise LocatorError(
                 "canonical brightness needs exactly one of "
                 "band/wavelength/frequency plus a 'value'",
             )
@@ -389,27 +401,29 @@ def parse_brightness(brightness: object) -> "Brightness | FromSpectralType":
         # a band given via the 'band' key is trusted as a band even if 1 char
         amount = _parse_amount(brightness["value"])
         field_system = brightness.get("system")
+
     elif isinstance(brightness, Sequence) and not isinstance(brightness, str):
         if len(brightness) != 2:
-            raise BrightnessError(
-                "E2", "tuple brightness must be exactly (locator, amount)"
+            raise LocatorError(
+                "tuple brightness must be exactly (locator, amount)"
             )
         loc_kind, loc = _parse_locator(brightness[0])
         amount = _parse_amount(brightness[1])
         field_system = None
+
     else:
         raise TypeError(
             "brightness must be a (locator, amount) tuple or a mapping, "
             f"not {type(brightness).__name__}"
         )
 
-    # ---- cross-field consistency (E3/E4/E5) ------------------------------
+    # cross-field consistency (E3/E4/E5)
     system = amount.system
     if field_system is not None:
         if amount.kind is not AmountKind.MAG:
-            raise BrightnessError("E4")
+            raise SystemMismatchError()
         if amount.system is not None:
-            raise BrightnessError("E5")
+            raise SystemDuplicateError()
         system = (
             field_system
             if isinstance(field_system, PhotometricSystem)
@@ -418,7 +432,7 @@ def parse_brightness(brightness: object) -> "Brightness | FromSpectralType":
 
     if amount.kind is AmountKind.MAG:
         if loc_kind is not LocatorKind.BAND:
-            raise BrightnessError("E3")
+            raise MissingBandError()
         if system is None:
             system = PhotometricSystem.VEGA
     else:

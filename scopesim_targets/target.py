@@ -30,6 +30,8 @@ from .brightness import (
     AnchorFrame,
     FromSpectralType,
     BrightnessError,
+    AmountError,
+    MissingBandError,
 )
 
 
@@ -469,17 +471,15 @@ class SpectrumTarget(Target):
                 "E7", "surface brightness is invalid for a point source"
             )
         if b.locator_kind is not LocatorKind.BAND:
-            raise BrightnessError(
-                "E3",
-                "a blackbody amplitude needs a band locator (spextra's "
+            raise MissingBandError(
+                "A blackbody amplitude needs a band locator (spextra's "
                 "black_body_spectrum takes a reference band)",
             )
         if b.amount_kind is AmountKind.MAG:
             amplitude = b.value.value * _BB_MAG_UNIT[b.system]
         elif b.amount_kind is AmountKind.ENERGY_FLUX:
-            raise BrightnessError(
-                "E1",
-                "a band-integrated energy flux is not a valid blackbody "
+            raise AmountError(
+                "A band-integrated energy flux is not a valid blackbody "
                 "amplitude -- give a magnitude or a spectral flux density",
             )
         else:  # spectral flux density (Jy, erg/s/cm2/A): pass through
