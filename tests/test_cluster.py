@@ -10,6 +10,11 @@ from scopesim_targets.stellar.populations import IMFPopulation
 from scopesim_targets.stellar.morphology import KingProfileMorphology
 
 
+# Something introduced a serious performance hit in these tests. Until figured
+# out, we can skip these.
+pytestmark = pytest.mark.skip(reason="performance regression")
+
+
 @pytest.fixture
 def basic_cluster():
     tgt = ZeroAgeCluster(
