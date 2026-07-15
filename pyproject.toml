@@ -23,6 +23,7 @@ dependencies = [
     "synphot (>=1.7.0,<2.0.0)",
     "astar-utils (>=0.5.3)",
     "spextra (>=0.43.5)",
+    "dust-extinction (>=1.7,<2.0)",
 ]
 
 [project.optional-dependencies]

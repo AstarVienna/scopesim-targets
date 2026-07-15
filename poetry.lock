@@ -900,6 +900,25 @@ files = [
 markers = {main = "extra == \"scopesim\""}
 
 [[package]]
+name = "dust-extinction"
+version = "1.7"
+description = "Interstellar Dust Extinction Models"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "dust_extinction-1.7.tar.gz", hash = "sha256:c421eafc44c622e82e9a122ed444c01f0909434c7462b04715e180723aa81064"},
+]
+
+[package.dependencies]
+astropy = "*"
+scipy = "*"
+
+[package.extras]
+docs = ["graphviz", "matplotlib", "sphinx", "sphinx-automodapi"]
+test = ["matplotlib", "pytest", "pytest-cov", "pytest-doctestplus"]
+
+[[package]]
 name = "executing"
 version = "2.2.1"
 description = "Get the currently executing AST node of a frame, and other information"
@@ -4124,4 +4143,4 @@ scopesim = ["scopesim"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11, <3.15"
-content-hash = "6a1528e61edc7338b973cff1a06ca2453f35989662fd5c7e10ffd073fdf9cf87"
+content-hash = "7c6f47f11435a1cc5d1eb78087ad35af143f96ee8916b6df63ede0ddd4b93668"
