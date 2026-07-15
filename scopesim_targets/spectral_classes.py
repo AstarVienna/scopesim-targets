@@ -350,16 +350,28 @@ class StellarParameters:
         actual_indices = sorted_indices[closest_sorted_indices]
         return self.table[actual_indices]
 
-    def _make_lookup_tree(self) -> KDTree:
-        # HACK: Using the existing index should ensure things are already
-        #       sorted, but this is untested because we initially sort this
-        #       column anyway. Whatever the case, there must be a better way to
-        #       get the values out than this double indexing...
-        spectral_type_array = [
-            spectype.to_array() for spectype in
-            self.table.indices["spectral_type"].data.data["spectral_type"]
+    @staticmethod
+    def _encode(spectype: SpectralType) -> list[float]:
+        """2-D KD-tree coordinate for a spectral type.
+
+        ``numerical_spectral_class`` already folds class + subclass into one
+        axis (K5 -> 55.0, A0 -> 20.0), and ``numerical_luminosity_class`` is the
+        second (V -> 5, III -> 3). This replaces the former ``SpectralType.
+        to_array``/``from_array`` pair, which the current ``astar_utils`` no
+        longer provides.
+        """
+        return [
+            float(spectype.numerical_spectral_class),
+            float(spectype.numerical_luminosity_class),
         ]
-        return KDTree(spectral_type_array)
+
+    def _make_lookup_tree(self) -> KDTree:
+        # Keep the catalog SpectralType objects alongside the tree so a query
+        # returns the *original* entry by index -- no reconstruction needed.
+        self._catalog_types = list(
+            self.table.indices["spectral_type"].data.data["spectral_type"]
+        )
+        return KDTree([self._encode(st) for st in self._catalog_types])
 
     def closest_spectral_type(self, spectral_type: SpectralType) -> QTable | Row:
         # TODO: docstring
@@ -367,16 +379,12 @@ class StellarParameters:
             self._lookup_tree = self._make_lookup_tree()
 
         # Deal with both scalar and array inputs
-        spectral_type_array = [
-            SpectralType(spectype).to_array() for spectype in
-            always_iterable(spectral_type)
+        query = [
+            self._encode(SpectralType(spectype))
+            for spectype in always_iterable(spectral_type)
         ]
-        closest_spectypes = [
-            SpectralType.from_array(spectype) for spectype in
-            np.atleast_2d(self._lookup_tree.data[
-                self._lookup_tree.query(spectral_type_array)[1]
-            ])
-        ]
+        indices = np.atleast_1d(self._lookup_tree.query(query)[1])
+        closest_spectypes = [self._catalog_types[i] for i in indices]
         return self.table.loc[closest_spectypes]
 
     def _get_remaining_colnames(self, colname: str) -> list[str]:
