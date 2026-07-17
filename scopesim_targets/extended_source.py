@@ -52,23 +52,66 @@ class ParametrizedTarget(ExtendedSourceTarget):
 
     _model_cls: ClassVar[type]
 
+    # Sub-pixel sampling factor for :meth:`_render_image`. 1 = plain pixel-
+    # center sampling (exact enough for smooth, well-resolved profiles); k > 1
+    # averages k*k midpoint samples per pixel, approximating the *pixel
+    # integral*. Profiles with a sharp edge (Disk, Ring) or a cusp (Sersic)
+    # set this: pixel-center sampling of a discontinuity mis-weights every
+    # edge pixel by up to a full pixel, so the weight-map total quantizes with
+    # the pixel phase (up to tens of percent for coarse scales) instead of
+    # matching the analytic normalization. See T-QUANT in the tests.
+    _oversample: ClassVar[int] = 1
+
+    @staticmethod
+    def _grid_centers(npix: int, scale: float) -> np.ndarray:
+        """Pixel-center coordinates [arcsec] of an npix-wide centered axis."""
+        return (np.arange(npix) - (npix / 2 - 0.5)) * scale
+
+    @staticmethod
+    def _scale_arcsec(optical_train) -> float:
+        """Pixel scale as a bare arcsec/pixel number (the render space)."""
+        return (1 * u.pix).to_value(
+            u.arcsec, u.pixel_scale(optical_train["pixel_scale"])
+        )
+
     def _render_image(self, optical_train):
-        pixel_scale = u.pixel_scale(optical_train["pixel_scale"])
-        with u.set_enabled_equivalencies(pixel_scale):
-            width = optical_train["width"] * u.pixel
-            height = optical_train["height"] * u.pixel
-            # Render in a bare arcsec numeric space: model params live in arcsec
-            # by convention (see _coerce_param / _as_arcsec), and mixing Quantity
-            # coords with bare params breaks model evaluation.
-            x = (
-                np.arange(width.value) * u.pixel - (width / 2 - 0.5 * u.pixel)
-            ).to_value(u.arcsec)
-            y = (
-                np.arange(height.value) * u.pixel
-                - (height / 2 - 0.5 * u.pixel)
-            ).to_value(u.arcsec)
-        coords = np.meshgrid(x, y)
-        return self._model.render(coords=coords)
+        """Render the unit-amplitude model, pixel-averaged, FITS-oriented.
+
+        Rendering happens in a bare arcsec numeric space: model params live in
+        arcsec by convention (see ``_coerce_param`` / ``_as_arcsec``), and
+        mixing Quantity coords with bare params breaks model evaluation.
+
+        Orientation: ``Model.render(coords=...)`` expects ``np.indices``-style
+        ordering (slow axis first) and evaluates ``model(*coords[::-1])``, so
+        the y grid goes in slot 0 and the returned array is ``(height, width)``
+        -- numpy's last axis is FITS NAXIS1, matching the WCS header built in
+        :meth:`_create_wcs`. (The previous ``meshgrid(x, y)`` ordering handed
+        the model swapped axes; on the square grids used so far the swap
+        cancelled against the numpy->FITS axis order, but with
+        ``width != height`` it put ``x_width`` along the height axis.)
+
+        Each pixel's value is the *mean* of ``_oversample**2`` midpoint samples
+        -- the midpoint-rule approximation of the pixel integral of the
+        profile. With ``_oversample = 1`` this reduces to the previous
+        pixel-center sampling. The subpixel offsets are accumulated one shifted
+        full-resolution render at a time, so peak memory stays at one
+        ``(height, width)`` array regardless of the factor.
+        """
+        scale = self._scale_arcsec(optical_train)
+        width = int(optical_train["width"])
+        height = int(optical_train["height"])
+        x = self._grid_centers(width, scale)
+        y = self._grid_centers(height, scale)
+
+        k = int(self._oversample)
+        offsets = ((np.arange(k) + 0.5) / k - 0.5) * scale
+        img = np.zeros((height, width))
+        for dy in offsets:
+            for dx in offsets:
+                img += self._model.render(
+                    coords=np.meshgrid(y + dy, x + dx, indexing="ij")
+                )
+        return img / k**2
 
     @staticmethod
     def _pixel_area(optical_train) -> u.Quantity:
@@ -83,14 +126,8 @@ class ParametrizedTarget(ExtendedSourceTarget):
         crpix = (naxis + 1) / 2
         crval = np.array([0, 0])  # TODO: Add support for position here
         # TODO: Use proper u.pixel_scale equivalency
-        cdelt = np.array(
-            2
-            * [
-                (1 * u.pix).to_value(
-                    u.arcsec, u.pixel_scale(optical_train["pixel_scale"])
-                )
-            ]
-        )
+        pxsc = u.pixel_scale(optical_train["pixel_scale"])
+        cdelt = np.array(2 * [(1 * u.pix).to_value(u.arcsec, pxsc)])
 
         wcs = WCS(naxis=2)
         wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
@@ -344,6 +381,39 @@ class Box(BrightnessProfile):
             (self._model.y_width << u.arcsec)
         )
 
+    def _render_image(self, optical_train):
+        """Exact per-pixel coverage fractions (analytic pixel integral).
+
+        ``Box2D`` is axis-aligned, so the pixel integral separates into two 1D
+        box/pixel overlaps -- computed in closed form instead of sampled
+        (``_oversample`` is irrelevant here). This makes the weight-map total
+        *exactly* the visible fraction of the box at any pixel scale: 1 for a
+        fully contained box regardless of whether the widths are commensurate
+        with the pixel grid (no edge quantization), and exactly
+        ``area(box & FOV) / area(box)`` when the box overflows the window --
+        the spectrum keeps carrying the whole-box flux either way.
+        """
+        scale = self._scale_arcsec(optical_train)
+
+        def coverage(npix: int, full_width: float) -> np.ndarray:
+            """Overlap fraction of each pixel with ``[-w/2, +w/2]``."""
+            centers = self._grid_centers(npix, scale)
+            half = full_width / 2
+            lo = np.maximum(centers - scale / 2, -half)
+            hi = np.minimum(centers + scale / 2, half)
+            return np.clip(hi - lo, 0.0, None) / scale
+
+        cov_x = coverage(
+            int(optical_train["width"]),
+            _as_arcsec(self._model.x_width).to_value(u.arcsec),
+        )
+        cov_y = coverage(
+            int(optical_train["height"]),
+            _as_arcsec(self._model.y_width).to_value(u.arcsec),
+        )
+        # (height, width): FITS-oriented, same as the base render.
+        return np.outer(cov_y, cov_x)
+
 
 class Disk(BrightnessProfile):
     """Uniform filled disk profile (radius ``R_0``)."""
@@ -351,6 +421,10 @@ class Disk(BrightnessProfile):
     _model_cls = Disk2D
     has_finite_total = True
     sb_reference = "uniform"
+    # Sharp circular edge: no separable closed-form pixel integral (unlike
+    # Box), so approximate it by oversampling; the residual rim error is
+    # O(scale / (k * R_0)) instead of O(scale / R_0).
+    _oversample = 10
 
     def total_flux_factor(self) -> u.Quantity:
         return np.pi * (self._model.R_0 << u.arcsec)**2
@@ -367,6 +441,7 @@ class Ring(BrightnessProfile):
     _model_cls = Ring2D
     has_finite_total = True
     sb_reference = "uniform"
+    _oversample = 10  # two sharp circular edges; see Disk
 
     def total_flux_factor(self) -> u.Quantity:
         r_in = self._model.r_in << u.arcsec
@@ -380,6 +455,11 @@ class Sersic(BrightnessProfile):
     _model_cls = GeneralSersic2D
     has_finite_total = True
     sb_reference = "at r_eff"
+    # Smooth except for the central cusp, which pixel-center sampling
+    # systematically under-weights for large n (~0.2-0.6% of the total at
+    # n = 4 and 0.2-0.4 arcsec/px, drifting with scale); modest oversampling
+    # makes the carried fraction sampling-stable at the 1e-4 level.
+    _oversample = 4
 
     def total_flux_factor(self) -> u.Quantity:
         model = self._model
