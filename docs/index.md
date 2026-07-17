@@ -53,6 +53,9 @@ simulation.plot(img_slice=(img_slice, img_slice))
 defining_positions.md
 defining_spectra.md
 defining_brightness.md
+flux_scaling.md
+flux_construction.md
+flux_engine.md
 yaml_syntax.md
 ```
 
