@@ -13,6 +13,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.modeling.functional_models import (
     GeneralSersic2D,
+    Gaussian2D,
     Ring2D,
     Box2D,
     Disk2D,
@@ -401,6 +402,39 @@ class Sersic(BrightnessProfile):
         b_n = gammaincinv(2 * n, 0.5)
         factor = 2 * np.pi * n * np.exp(b_n) * gamma(2 * n) * b_n ** (-2 * n)
         return factor * (1 - ellip) * _as_arcsec(model.r_eff) ** 2
+
+
+class Gaussian(BrightnessProfile):
+    """Elliptical 2D Gaussian profile.
+
+    The clean cross-check among the profiles: smooth everywhere (no sharp edge,
+    so pixel-center sampling is already pixel-integral-accurate and there is no
+    rasterization quantization to speak of), with a trivial closed-form total
+    ``2 pi A sigma_x sigma_y`` (rotation-invariant), and -- for ``theta = 0`` --
+    a closed-form *window* fraction too (a product of error functions), so both
+    the fully-contained and the clipped weight-map sums have independent
+    analytic oracles. See T-QUANT-GAUSS in the tests.
+
+    ``Gaussian2D`` names its center ``x_mean`` / ``y_mean`` (not ``x_0`` /
+    ``y_0``), hence the class-specific reserved-parameter table.
+    """
+
+    _model_cls = Gaussian2D
+    has_finite_total = True
+    sb_reference = "at the peak"
+
+    _RESERVED: ClassVar[dict[str, str]] = {
+        "amplitude": "flux is owned by 'brightness' (see defining_brightness.md)",
+        "x_mean": "position is owned by 'position'/'offset'",
+        "y_mean": "position is owned by 'position'/'offset'",
+    }
+
+    def total_flux_factor(self) -> u.Quantity:
+        return (
+            2 * np.pi
+            * _as_arcsec(self._model.x_stddev)
+            * _as_arcsec(self._model.y_stddev)
+        )
 
 
 class Flat(BrightnessProfile):
