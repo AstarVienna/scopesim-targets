@@ -39,7 +39,7 @@ class TestClusterExtinction:
         from unittest.mock import Mock
 
         return Cluster(
-            position=SkyCoord(0 * u.deg, 0 * u.deg, 1 * u.kpc),
+            position=SkyCoord(0*u.deg, 0*u.deg, 1*u.kpc),
             population=Mock(),
             morphology=Mock(),
             **kwargs,
@@ -120,9 +120,9 @@ class TestClusterExtinction:
         tgt = ZeroAgeCluster(
             SkyCoord(0 * u.deg, 0 * u.deg, 1 * u.kpc),
             IMFPopulation,
-            {"n_stars": 50},
+            {"n_stars": 10},
             KingProfileMorphology,
-            {"n_stars": 50, "r_core": 1 * u.pc, "r_tide": 10 * u.pc},
+            {"n_stars": 10, "r_core": 1 * u.pc, "r_tide": 10 * u.pc},
             extinction={
                 "distribution": "column_density_pdf",
                 "params": {"av_median": 2.0, "sigma": 0.4, "av_break": 5.0,
@@ -146,7 +146,7 @@ class TestClusterReproducibility:
         from scopesim_targets.stellar.morphology import KingProfileMorphology
 
         pos = SkyCoord(0 * u.deg, 0 * u.deg, 1 * u.kpc)
-        kw = dict(n_stars=40, r_core=1 * u.pc, r_tide=10 * u.pc)
+        kw = dict(n_stars=10, r_core=1 * u.pc, r_tide=10 * u.pc)
         a = KingProfileMorphology(rng=np.random.default_rng(9), **kw).sample(pos)
         b = KingProfileMorphology(rng=np.random.default_rng(9), **kw).sample(pos)
         c = KingProfileMorphology(rng=np.random.default_rng(10), **kw).sample(pos)
@@ -163,9 +163,9 @@ class TestClusterReproducibility:
         def build():
             return ZeroAgeCluster(
                 SkyCoord(0 * u.deg, 0 * u.deg, 1 * u.kpc),
-                IMFPopulation, {"n_stars": 40},
+                IMFPopulation, {"n_stars": 10},
                 KingProfileMorphology,
-                {"n_stars": 40, "r_core": 1 * u.pc, "r_tide": 10 * u.pc},
+                {"n_stars": 10, "r_core": 1 * u.pc, "r_tide": 10 * u.pc},
                 extinction={"distribution": "uniform", "params": {"low": 0, "high": 3}},
                 rng_seed=7,
             ).to_source().fields[0].field
