@@ -385,8 +385,9 @@ class Box(BrightnessProfile):
     sb_reference = "uniform"
 
     def total_flux_factor(self) -> u.Quantity:
-        return _as_arcsec(self._model.x_width) * _as_arcsec(
-            self._model.y_width
+        return (
+            (self._model.x_width << u.arcsec) *
+            (self._model.y_width << u.arcsec)
         )
 
     def _render_image(self, optical_train):
@@ -435,7 +436,7 @@ class Disk(BrightnessProfile):
     _oversample = 10
 
     def total_flux_factor(self) -> u.Quantity:
-        return np.pi * _as_arcsec(self._model.R_0) ** 2
+        return np.pi * (self._model.R_0 << u.arcsec)**2
 
 
 class Ring(BrightnessProfile):
@@ -452,8 +453,8 @@ class Ring(BrightnessProfile):
     _oversample = 10  # two sharp circular edges; see Disk
 
     def total_flux_factor(self) -> u.Quantity:
-        r_in = _as_arcsec(self._model.r_in)
-        r_out = r_in + _as_arcsec(self._model.width)
+        r_in = self._model.r_in << u.arcsec
+        r_out = r_in + (self._model.width << u.arcsec)
         return np.pi * (r_out**2 - r_in**2)
 
 
@@ -511,9 +512,9 @@ class Gaussian(BrightnessProfile):
 
     def total_flux_factor(self) -> u.Quantity:
         return (
-            2 * np.pi
-            * _as_arcsec(self._model.x_stddev)
-            * _as_arcsec(self._model.y_stddev)
+            2*np.pi
+            * (self._model.x_stddev << u.arcsec)
+            * (self._model.y_stddev << u.arcsec)
         )
 
 
