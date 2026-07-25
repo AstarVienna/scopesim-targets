@@ -71,6 +71,8 @@ filterwarnings = [
     "default::astropy.utils.exceptions.AstropyUserWarning",
     # From SpeXtra, fix there FFS
     "default:The 'name plus file extension' property:FutureWarning",
+    # Should fix but is super noisy
+    "ignore:.*negative flux or throughput.*:astropy.utils.exceptions.AstropyUserWarning",
 ]
 
 [tool.coverage.report]
