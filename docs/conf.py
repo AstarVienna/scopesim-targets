@@ -53,6 +53,7 @@ html_theme_options = {
     "use_repository_button": True,
     "use_download_button": True,  # allow download of individual pages
     "home_page_in_toc": True,
+    "show_toc_level": 2,  # page-level TOC on the right sidebar, 3 -> up to ##
 }
 
 html_logo = "_static/logo.png"  # link to logo
