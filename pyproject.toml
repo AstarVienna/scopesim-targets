@@ -7,9 +7,9 @@ authors = [
 ]
 license = {text = "GPL-3.0-or-later"}
 readme = "README.md"
-requires-python = ">=3.11, <3.15"
+requires-python = ">=3.12, <3.15"
 dependencies = [
-    "numpy (>=1.26.4,<2.3.0) ; python_version >= '3.11' and python_version < '3.13'",
+    "numpy (>=1.26.4,<2.3.0) ; python_version >= '3.12' and python_version < '3.13'",
     "numpy (>=2.3.5,<3.0.0) ; python_version >= '3.13'",
     # SciPy is only an indirect dependency through synphot, but has limited
     # wheels for Python versions, so needs to be specified explicitly.
@@ -26,13 +26,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-scopesim = ["scopesim (>=0.11.2,<1.0.0)"]
+scopesim = ["scopesim (>=0.11.4,<1.0.0)"]
 
 
 [tool.poetry.group.dev.dependencies]
-pylint = "^4.0.5"
+pylint = "^4.0.6"
 black = "^26.5.1"
-mypy = "^2.1.0"
+mypy = "^2.3.0"
 
 
 [tool.poetry.group.test.dependencies]
@@ -44,11 +44,11 @@ pytest-cov = "^7.1.0"
 optional = true
 
 [tool.poetry.group.docs.dependencies]
-sphinx = "^9.0.4"
-sphinx-book-theme = "^1.2.0"
+sphinx = "^9.1.0"
+sphinx-book-theme = "^1.4.0"
 sphinx-copybutton = ">=0.5.2,<1.0"
 sphinxcontrib-apidoc = ">=0.6.0,<1.0"
-sphinxcontrib-mermaid = "^2.0.2"
+sphinxcontrib-mermaid = "^2.1.0"
 myst-nb = "^1.4.0"
 sphinx-issues = "^6.0.0"
 
