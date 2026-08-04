@@ -13,7 +13,10 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.modeling.functional_models import (
     GeneralSersic2D,
+    Ring2D,
+    Box2D,
     Disk2D,
+    Const2D,
 )
 
 from scopesim import Source
@@ -327,6 +330,20 @@ class BrightnessProfile(ParametrizedTarget):
         return spectrum * self._anchored_spectrum_scale(spectrum, brightness)
 
 
+class Box(BrightnessProfile):
+    """Uniform rectangular box profile."""
+
+    _model_cls = Box2D
+    has_finite_total = True
+    sb_reference = "uniform"
+
+    def total_flux_factor(self) -> u.Quantity:
+        return (
+            (self._model.x_width << u.arcsec) *
+            (self._model.y_width << u.arcsec)
+        )
+
+
 class Disk(BrightnessProfile):
     """Uniform filled disk profile (radius ``R_0``)."""
 
@@ -336,6 +353,24 @@ class Disk(BrightnessProfile):
 
     def total_flux_factor(self) -> u.Quantity:
         return np.pi * (self._model.R_0 << u.arcsec)**2
+
+
+class Ring(BrightnessProfile):
+    """Uniform annulus profile (inner radius ``r_in``, ``width``).
+
+    This is the model formerly exposed as ``Disk`` (an ``astropy`` ``Ring2D``);
+    it is a ring, not a filled disk, so it has been renamed. Use :class:`Disk`
+    for a uniform filled disk.
+    """
+
+    _model_cls = Ring2D
+    has_finite_total = True
+    sb_reference = "uniform"
+
+    def total_flux_factor(self) -> u.Quantity:
+        r_in = self._model.r_in << u.arcsec
+        r_out = r_in + (self._model.width << u.arcsec)
+        return np.pi * (r_out**2 - r_in**2)
 
 
 class Sersic(BrightnessProfile):
@@ -358,3 +393,28 @@ class Sersic(BrightnessProfile):
         b_n = gammaincinv(2 * n, 0.5)
         factor = 2 * np.pi * n * np.exp(b_n) * gamma(2 * n) * b_n ** (-2 * n)
         return factor * (1 - ellip) * _as_arcsec(model.r_eff) ** 2
+
+
+class Flat(BrightnessProfile):
+    """Infinite constant surface brightness (no finite analytic total).
+
+    Only a surface brightness is valid (an integrated brightness is E6). The
+    total flux is realized from the rendered field of view -- the FOV closes the
+    otherwise-open integral -- so the stored artifact is the usual weight map
+    (uniform, summing to 1) plus a flux-calibrated spectrum, and the total is
+    legitimately field-of-view dependent.
+    """
+
+    _model_cls = Const2D
+    has_finite_total = False
+    sb_reference = "the constant"
+
+    def total_flux_factor(self) -> u.Quantity:
+        raise BrightnessError(
+            "E6", "Flat has no finite analytic total (the integral diverges)"
+        )
+
+    def _effective_area(self, optical_train) -> u.Quantity:
+        # The FOV closes the open integral: A_eff = Omega_pixel * N_pixels.
+        n_pixels = optical_train["width"] * optical_train["height"]
+        return self._pixel_area(optical_train) * n_pixels
