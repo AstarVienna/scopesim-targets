@@ -7,11 +7,7 @@ numbering:
   heading_2: true
 ---
 
-# From Spectrum to Image: Where the Flux Lives
-```{TODO}
-Consider different title.
-```
-
+# Spectra and weights: How flux is stored in the Source object
 Every non-cube target stores the same two things: a set of dimensionless _weights_ and a _spectrum_ scaled to a specific flux.
 The total flux stored in the source is always the same product of those two:
 
@@ -498,7 +494,7 @@ fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=True, layout="compressed")
 for ax, wmap, title in zip(
     axes, (wmap_box, wmap_gauss), ("Box (exact edges)", "Gaussian (truncated wings)")
 ):
-    im = ax.imshow(wmap, origin="lower", extent=extent, cmap="viridis", vmax=vmax)
+    im = ax.imshow(wmap, origin="lower", extent=extent, cmap="cividis", vmax=vmax)
     add_pixel_grid(ax, box_grid, force_major_subset=False)
     ax.set_aspect("equal")
     ax.grid(False, which="major")
