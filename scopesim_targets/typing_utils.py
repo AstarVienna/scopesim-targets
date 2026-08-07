@@ -27,5 +27,5 @@ SPECTRUM_TYPE = SourceSpectrum | SpectralType | str
 # or ``{from_spectral_type: ...}``). ``brightness.parse_brightness`` normalizes
 # either into a ``brightness.Brightness``. Both slots individually accept
 # ``str``/``Quantity``/number, so this stays deliberately loose at the top
-# level. (Retires the former ``typing.Any`` placeholder.)
+# level.
 BRIGHTNESS_TYPE = Sequence | Mapping
