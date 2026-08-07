@@ -9,8 +9,6 @@ Two tiers:
 * Full ``to_source`` -- marked ``webtest``: constructs a real ScopeSim
   ``Source`` and resolves/scales a spectrum via spextra.
 
-``optical_train`` is duck-typed: ``to_source`` only reads ``pixel_scale``,
-``width`` and ``height``, so a plain dict suffices for tests.
 """
 
 import pytest
@@ -19,7 +17,6 @@ from numpy import testing as npt
 import astropy.units as u
 
 from scopesim_targets.extended_source import Box, Disk, Ring, Sersic, Flat
-from scopesim_targets.brightness import AnchorFrame
 from scopesim_targets.brightness import (
     BrightnessError,
     parse_brightness,
@@ -28,7 +25,7 @@ from scopesim_targets.brightness import (
 
 
 @pytest.fixture
-def optical_train():
+def grid():
     return {"pixel_scale": 1 * u.arcsec / u.pixel, "width": 64, "height": 64}
 
 
@@ -110,18 +107,14 @@ class TestParamValidation:
 class TestWeightMap:
     """Rendering + analytic normalization: no Source, no spectrum, no network."""
 
-    def test_box_weightmap_sums_to_one(self, optical_train):
+    def test_box_weightmap_sums_to_one(self, grid):
         # 6x4 box on a 1 arcsec grid, fully contained and pixel-aligned: the
         # midpoint rule is exact, so the weight map sums to exactly 1 (T-BOX).
-        wm, _ = Box(params={"x_width": 6, "y_width": 4})._weightmap(
-            optical_train
-        )
+        wm, _ = Box(params={"x_width": 6, "y_width": 4})._weightmap(grid)
         npt.assert_allclose(wm.sum(), 1.0, rtol=1e-12)
 
-    def test_bunit_is_dimensionless(self, optical_train):
-        _, hdr = Box(params={"x_width": 6, "y_width": 4})._weightmap(
-            optical_train
-        )
+    def test_bunit_is_dimensionless(self, grid):
+        _, hdr = Box(params={"x_width": 6, "y_width": 4})._weightmap(grid)
         assert hdr["BUNIT"] == ""
 
     def test_clipped_profile_sums_below_one(self):
@@ -154,10 +147,10 @@ class TestWeightMap:
             rtol=1e-12,
         )
 
-    def test_flat_weightmap_is_uniform(self, optical_train):
+    def test_flat_weightmap_is_uniform(self, grid):
         # Non-integrable profile: A_eff is the field of view, so the weight map
         # is uniform and sums to 1 (the FOV closes the open integral).
-        wm, _ = Flat()._weightmap(optical_train)
+        wm, _ = Flat()._weightmap(grid)
         npt.assert_allclose(wm.sum(), 1.0, rtol=1e-12)
         assert np.allclose(wm, wm.flat[0])
 
@@ -168,42 +161,39 @@ class TestSurfaceBrightness:
     these stay offline; the reduction itself is synphot-free.
     """
 
-    def test_finite_sb_reduces_to_integrated_mag(self, optical_train):
+    def test_finite_sb_reduces_to_integrated_mag(self, grid):
         box = Box(
             params={"x_width": 6, "y_width": 4}
         )  # total_flux_factor = 24 arcsec2
         box._brightness = parse_brightness(["V", "21.5 mag / arcsec2"])
-        eff = box._effective_integrated_brightness(optical_train)
+        eff = box._effective_integrated_brightness(grid)
         assert eff.solid_angle is None  # now integrated
         npt.assert_allclose(
             eff.value.to_value(u.mag), 21.5 - 2.5 * np.log10(24), rtol=1e-9
         )
 
-    def test_integrated_passes_through_unchanged(self, optical_train):
+    def test_integrated_passes_through_unchanged(self, grid):
         box = Box(params={"x_width": 6, "y_width": 4})
         box._brightness = parse_brightness(["V", "15 mag"])
-        assert (
-            box._effective_integrated_brightness(optical_train)
-            is box._brightness
-        )
+        assert box._effective_integrated_brightness(grid) is box._brightness
 
-    def test_sb_equivalent_to_matching_integrated(self, optical_train):
+    def test_sb_equivalent_to_matching_integrated(self, grid):
         # A Sersic given SB must reduce to the integrated mag that carries the
         # same total flux (T-B2 at the brightness level).
         ser = Sersic(params={"r_eff": 3, "n": 4})
         tff = ser.total_flux_factor().to_value(u.arcsec**2)
         ser._brightness = parse_brightness(["V", "20 mag / arcsec2"])
-        eff = ser._effective_integrated_brightness(optical_train)
+        eff = ser._effective_integrated_brightness(grid)
         npt.assert_allclose(
             eff.value.to_value(u.mag), 20 - 2.5 * np.log10(tff), rtol=1e-9
         )
 
-    def test_nonintegrable_sb_uses_fov_area(self, optical_train):
+    def test_nonintegrable_sb_uses_fov_area(self, grid):
         # Flat has no analytic total, so A_eff is the FOV: 64x64 @ 1 arcsec/pix
         # -> A_FOV = 4096 arcsec2.
         flat = Flat()
         flat._brightness = parse_brightness(["V", "21.5 mag / arcsec2"])
-        eff = flat._effective_integrated_brightness(optical_train)
+        eff = flat._effective_integrated_brightness(grid)
         npt.assert_allclose(
             eff.value.to_value(u.mag),
             21.5 - 2.5 * np.log10(64 * 64),
@@ -228,13 +218,13 @@ class TestSurfaceBrightness:
         m_big = flat._effective_integrated_brightness(big).value
         assert m_big < m_small
 
-    def test_nonmagnitude_sb_reduces_to_integrated(self, optical_train):
+    def test_nonmagnitude_sb_reduces_to_integrated(self, grid):
         # Linear surface brightness now reduces too: total = SB * A_eff, with
         # the per-solid-angle divisor stripped (Box total_flux_factor = 24
         # arcsec2). Retires the former Jy/sr deferral.
         box = Box(params={"x_width": 6, "y_width": 4})
         box._brightness = parse_brightness(["V", "5 MJy / sr"])
-        eff = box._effective_integrated_brightness(optical_train)
+        eff = box._effective_integrated_brightness(grid)
         assert eff.solid_angle is None
         assert eff.amount_kind is AmountKind.FLUX_DENSITY_NU
         npt.assert_allclose(
@@ -243,12 +233,12 @@ class TestSurfaceBrightness:
             rtol=1e-9,
         )
 
-    def test_radiance_sb_reduces_to_energy_flux(self, optical_train):
+    def test_radiance_sb_reduces_to_energy_flux(self, grid):
         # Per-solid-angle energy flux (radiance) reduces to a band-integrated
         # energy flux over the effective area.
         box = Box(params={"x_width": 6, "y_width": 4})
         box._brightness = parse_brightness(["V", "3e-8 W / (m2 arcsec2)"])
-        eff = box._effective_integrated_brightness(optical_train)
+        eff = box._effective_integrated_brightness(grid)
         assert eff.solid_angle is None
         assert eff.amount_kind is AmountKind.ENERGY_FLUX
         npt.assert_allclose(
@@ -259,13 +249,13 @@ class TestSurfaceBrightness:
             rtol=1e-9,
         )
 
-    def test_nonfinite_integrated_raises_E6(self, optical_train):
+    def test_nonfinite_integrated_raises_E6(self, grid):
         # An *integrated* brightness on a non-integrable profile has no finite
         # total to carry: E6 (raised before any rendering/scaling).
         flat = Flat()
         flat._brightness = parse_brightness(["V", "15 mag"])
         with pytest.raises(BrightnessError) as exc:
-            flat.to_source(optical_train)
+            flat.to_source(grid)
         assert exc.value.code == "E6"
 
 
@@ -273,40 +263,40 @@ class TestToSource:
     """Full conversion: builds a real ScopeSim Source and scales a spectrum."""
 
     @pytest.mark.webtest
-    def test_returns_source(self, optical_train):
+    def test_returns_source(self, grid):
         box = Box(
             spectrum="G2V",
             brightness=["V", 15],
             params={"x_width": 6, "y_width": 4},
         )
-        assert box.to_source(optical_train) is not None
+        assert box.to_source(grid) is not None
 
     @pytest.mark.webtest
-    def test_position_guard_without_position(self, optical_train):
+    def test_position_guard_without_position(self, grid):
         # Must not raise AttributeError when position was never set.
         box = Box(
             spectrum="G2V",
             brightness=["V", 15],
             params={"x_width": 6, "y_width": 4},
         )
-        box.to_source(optical_train)
+        box.to_source(grid)
 
     @pytest.mark.webtest
-    def test_finite_surface_brightness_ok(self, optical_train):
+    def test_finite_surface_brightness_ok(self, grid):
         # Finite profile + surface brightness renders via the Case II reduction.
         box = Box(
             spectrum="G2V",
             brightness=["V", "21.5 mag / arcsec2"],
             params={"x_width": 6, "y_width": 4},
         )
-        assert box.to_source(optical_train) is not None
+        assert box.to_source(grid) is not None
 
     @pytest.mark.webtest
-    def test_nonintegrable_surface_brightness_ok(self, optical_train):
+    def test_nonintegrable_surface_brightness_ok(self, grid):
         # Flat + surface brightness now renders: total flux from the FOV, uniform
         # weight map, flux in the spectrum (no per-pixel image-owns-flux path).
         flat = Flat(spectrum="G2V", brightness=["V", "21.5 mag / arcsec2"])
-        assert flat.to_source(optical_train) is not None
+        assert flat.to_source(grid) is not None
 
 
 class TestAnchorOnProfiles:
@@ -333,9 +323,7 @@ class TestAnchorOnProfiles:
         "implemented' (defining_extinction.md). Written in final form; enable "
         "once screens are applied in the normative pipeline."
     )
-    def test_observed_vs_intrinsic_surface_brightness_with_screen(
-        self, optical_train
-    ):
+    def test_observed_vs_intrinsic_surface_brightness_with_screen(self, grid):
         # T-B8. With a 2-mag extinction screen in the brightness band:
         #   * observed: the reddened SED is scaled so band photometry matches the
         #     SB value -> the anchored scale is unchanged at that band.
@@ -352,8 +340,8 @@ class TestAnchorOnProfiles:
         )
         observed = Sersic(anchor="observed", **common)
         intrinsic = Sersic(anchor="intrinsic", **common)
-        s_obs = observed._scale_spectrum(optical_train)
-        s_int = intrinsic._scale_spectrum(optical_train)
+        s_obs = observed._scale_spectrum(grid)
+        s_int = intrinsic._scale_spectrum(grid)
         # Compare realized band flux of the two scaled spectra (ratio 10**-0.8).
         npt.assert_allclose(
             _band_flux(s_int, "V") / _band_flux(s_obs, "V"),

@@ -31,7 +31,7 @@ def target_subcls():
     it, without using any of its actual subcls.
     """
     class MockTargetSubcls(Target):
-        def to_source(self):
+        def to_source(self, *args, **kwargs):
             pass
     return MockTargetSubcls()
 
@@ -40,7 +40,7 @@ def target_subcls():
 def spectrum_target_subcls():
     """Like ``target_subcls``, but for `SpectrumTarget`."""
     class MockSpectrumTargetSubcls(SpectrumTarget):
-        def to_source(self):
+        def to_source(self, *args, **kwargs):
             pass
     return MockSpectrumTargetSubcls()
 

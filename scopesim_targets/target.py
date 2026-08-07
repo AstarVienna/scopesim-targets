@@ -58,7 +58,7 @@ class Target(metaclass=ABCMeta):
     """Main class in scopesim-targets."""
 
     @abstractmethod
-    def to_source(self) -> Source:
+    def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
         raise NotImplementedError()
 

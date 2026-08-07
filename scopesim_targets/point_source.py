@@ -38,7 +38,7 @@ class PointSourceTarget(SpectrumTarget):
         if anchor is not None:
             self.anchor = anchor
 
-    def to_source(self) -> Source:
+    def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
         source = Source(
             field=TableSourceField(
@@ -481,7 +481,7 @@ class PlanetarySystem(PointSourceTarget):
         if components is not None:
             self.components = components
 
-    def to_source(self) -> Source:
+    def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
         local_frame = self.position.skyoffset_frame()
 
@@ -612,7 +612,7 @@ class StarField(PointSourceTarget):
             for brightness in brightnesses
         ]
 
-    def to_source(self) -> Source:
+    def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
         local_frame = SkyCoord(0 * u.deg, 0 * u.deg).skyoffset_frame()
 
