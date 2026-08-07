@@ -494,7 +494,7 @@ fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=True, layout="compressed")
 for ax, wmap, title in zip(
     axes, (wmap_box, wmap_gauss), ("Box (exact edges)", "Gaussian (truncated wings)")
 ):
-    im = ax.imshow(wmap, origin="lower", extent=extent, cmap="cividis", vmax=vmax)
+    im = ax.imshow(wmap, origin="lower", extent=extent, cmap="mako", vmax=vmax)
     add_pixel_grid(ax, box_grid, force_major_subset=False)
     ax.set_aspect("equal")
     ax.grid(False, which="major")
