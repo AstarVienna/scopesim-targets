@@ -81,10 +81,8 @@ For surface-brightness magnitudes, the verified astropy spellings are:
 
 ```yaml
 brightness: ["V", "21.5 mag / arcsec2"]        # Vega surface brightness
-brightness: ["V", "21.5 mag(AB / arcsec2)"]    # AB surface brightness
+brightness: ["V", "21.5 mag(AB) / arcsec2"]    # AB surface brightness
 ```
-
-(`"mag(AB) / arcsec2"` does **not** parse — astropy function units cannot be divided — and is rejected.)
 
 ### What surface brightness means per profile
 For non-uniform profiles, "the" surface brightness needs a reference point.
