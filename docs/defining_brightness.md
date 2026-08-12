@@ -44,11 +44,11 @@ Brightness is a two-slot value — **where** and **how much** — mirroring how 
 This covers all four brightness pairs of the ESO target specification (5.3.6) with one uniform syntax:
 
 ```yaml
-brightness: ["R", "15 mag"]                                 # band, magnitude
-brightness: ["K", "3.5 mJy"]                                # band, flux density
-brightness: ["K", "4.2e-18 W / m2"]                         # band, integrated flux
-brightness: ["656.3 nm", "1.2e-16 erg / (s cm2 Angstrom)"]  # wavelength, flux
-brightness: ["230 GHz", "5 mJy"]                            # frequency, flux
+brightness: ["R", "15 mag"]                           # band, magnitude
+brightness: ["K", "3.5 mJy"]                          # band, spectral flux density
+brightness: ["K", "4.2e-18 W / m2"]                   # band, irradiance
+brightness: ["656.3 nm", "1.2e-16 erg / (s cm2 nm)"]  # wavelength, spectral flux density (wav)
+brightness: ["230 GHz", "5 mJy"]                      # frequency, spectral flux density
 ```
 
 The fully explicit (canonical) form is a mapping with exactly one locator key:
