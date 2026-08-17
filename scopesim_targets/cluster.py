@@ -62,7 +62,7 @@ class ZeroAgeCluster(Cluster):
             morph_class(**morph_params),
         )
 
-    def to_source(self):
+    def to_source(self, optical_train=None):
         src_coldict, spectra = self.population.to_source_columns(self.position)
         src_coldict.update(self.morphology.to_source_columns(self.position))
 

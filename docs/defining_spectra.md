@@ -15,19 +15,31 @@ Side note: We consider _spectrum_ to be the singular case, and _spectra_ the plu
 Thus, there is no such thing as "a spectra", because _spectra_ always refers to multiple.
 If there is a case where more than one spectrum is meant (such as multiple point sources in a cluster), the word _spectra_ shall be used.
 
-## Possible way to specify spectral information
+## Possible ways to specify spectral information
 In short:
 * `synphot.SourceSpectrum` instance
 * `astar_utils.SpectralType` instance, in which case the closest available template will be used.
 * A string able to be parsed into a `astar_utils.SpectralType` instance, see above.
 * "spex:spextra_name", where "spextra_name" resolves to a `spextra.Spextrum` database entry.
 * "file:file_name", where "file_name" points to a local file containing spectral information, see below.
+* "blackbody:temperature", e.g. `"blackbody:2000 K"`, a blackbody of the given temperature.
+  Note that a blackbody spectrum carries no intrinsic flux scale and therefore
+  always requires a `brightness` to be given.
 
 ### Spectra from file
 Currently, a "file:file_name" identifier will be forwarded as-is to `synphot.SourceSpectrum.from_file()`, meaning any format supported by that constructor is supported here.
 Support for more formats is planned down the road.
 
-## Wavelengths
-Any spectra should be given in rest-frame and vacuum wavelengths.
-All shifts are done by the tools (e.g. `ScopeSim`) using the target definitions.
-Line-of-sight velocity or cosmological redshift ("z") can be supplied as part of the positional information, see [defining positions](defining_positions.md).
+## Wavelengths and order of operations
+All spectra should be given in rest-frame and vacuum wavelengths.
+All shifts are done by the tools (e.g. `ScopeSim`) using the target definitions,
+in the following normative order:
+
+1. rest-frame spectrum,
+2. Doppler/cosmological shift (`radial_velocity` or `z`, see [defining positions](defining_positions.md)),
+3. extinction screens, applied in the *observer* frame (see [defining extinction](defining_extinction.md)),
+4. flux anchoring to `brightness` (see [defining brightness](defining_brightness.md));
+   for `anchor: absolute`, the (achromatic) distance modulus is part of this step.
+
+This ordering matters: Galactic dust sits between the observer and everything
+else, so extinction acts on observed wavelengths, after any redshift.
