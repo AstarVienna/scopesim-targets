@@ -90,7 +90,7 @@ def get_tick_limits(grid):
     ]) * (grid["pixel_scale"] * 0.5*u.pix).to_value(u.arcsec)
     return np.ceil(np.ceil(extent_arcsec(grid)/scale)*scale) + offset
 
-def add_pixel_grid(ax, grid, color="white", lw=.8, ls=":", alpha=.6,
+def add_pixel_grid(ax, grid, color="white", lw=1.2, ls=":", alpha=.6,
                    major_step=False):
     scale = grid["pixel_scale"].to_value(u.arcsec/u.pixel)
     width = int(round(grid["width"]))

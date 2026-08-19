@@ -80,7 +80,7 @@ def get_tick_limits(grid):
     ]) * (grid["pixel_scale"] * 0.5*u.pix).to_value(u.arcsec)
     return np.ceil(np.ceil(extent_arcsec(grid)/scale)*scale) + offset
 
-def add_pixel_grid(ax, grid, color="white", lw=.8, ls=":", alpha=.6,
+def add_pixel_grid(ax, grid, color="white", lw=1.2, ls=":", alpha=.6,
                    major_step=False):
     scale = grid["pixel_scale"].to_value(u.arcsec/u.pixel)
     width = int(round(grid["width"]))
@@ -292,7 +292,7 @@ for ax, large_grid in zip(axes, large_grids):
         cmap=cmap, vmin=0, vmax=1,
     )
     ax.scatter(0, 0, s=50, c="r", marker="x")
-    add_pixel_grid(ax, large_grid, major_step=10, lw=1.2, alpha=.8)
+    add_pixel_grid(ax, large_grid, major_step=10, alpha=.8)
     ax.set_xlabel("arcsec")
     ax.set_title(large_grid["title"])
     ax.set_aspect("equal")
@@ -343,7 +343,7 @@ giving an analytic solution for the map sum.
 
 ```{code-cell} ipython3
 sx, sy = 6.0, 4.0  # arcsec
-gauss_grid = {"pixel_scale": 0.5*u.arcsec/u.pixel, "width": 28, "height": 28}
+gauss_grid = {"pixel_scale": 0.5*u.arcsec/u.pixel, "width": 25, "height": 25}
 
 gaussian = Gaussian(
     spectrum=flat_spec,
@@ -363,16 +363,19 @@ frac_analytic = float(erf(L/(np.sqrt(2)*sx)) * erf(L/(np.sqrt(2)*sy)))
 
 ```{code-cell} ipython3
 :tags: [hide-input]
-fig, ax = plt.subplots(figsize=(7, 6.5), layout="compressed")
+fig, ax = plt.subplots(figsize=(6, 6), layout="compressed")
 im = ax.imshow(
-    src_gauss.fields[0].data * 1e3, origin="lower",
-    extent=extent_arcsec(gauss_grid), cmap="magma", norm="log",
+    src_gauss.fields[0].data, origin="lower",
+    extent=extent_arcsec(gauss_grid), cmap="magma", #norm="log",
 )
-add_pixel_grid(ax, gauss_grid)
-ax.add_patch(Ellipse((0, 0), 2*sx, 2*sy, fill=False, ec="cyan", ls="--", lw=1.5))
-ax.text(sx, 0.5, r"  1$\sigma$", color="cyan", fontsize=9)
-ax.set_xlabel("arcsec"); ax.set_ylabel("arcsec")
-fig.colorbar(im, ax=ax, shrink=0.8, label=r"weight (dimensionless)  [$\times 10^{-3}$]")
+add_pixel_grid(ax, gauss_grid, major_step=2, lw=1)
+ax.add_patch(Ellipse((0, 0), 2*sx, 2*sy, fill=False, ec="C0", ls="--", lw=1.5))
+ax.text(sx, 0.5, r"  1$\sigma$", color="C0", fontsize=9)
+ax.set_xlabel("arcsec")
+ax.set_ylabel("arcsec")
+cbar = fig.colorbar(im, ax=ax, location="right", shrink=1.0, pad=0)
+cbar.formatter.set_powerlimits((-3, -3))
+cbar.update_ticks()
 plt.show()
 ```
 
