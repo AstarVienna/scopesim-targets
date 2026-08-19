@@ -10,6 +10,10 @@ kernelspec:
   name: python3
   display_name: Python 3 (ipykernel)
   language: python
+file_format: mystnb
+numbering:
+  heading_1: true
+  heading_2: true
 ---
 
 # Rasterization and FOV details

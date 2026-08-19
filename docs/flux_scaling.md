@@ -1,7 +1,16 @@
 ---
-file_format: mystnb
+jupytext:
+  formats: md:myst
+  text_representation:
+    extension: .md
+    format_name: myst
+    format_version: 0.13
+    jupytext_version: 1.19.5
 kernelspec:
   name: python3
+  display_name: Python 3 (ipykernel)
+  language: python
+file_format: mystnb
 numbering:
   heading_1: true
   heading_2: true
