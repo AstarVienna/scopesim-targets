@@ -363,20 +363,18 @@ frac_analytic = float(erf(L/(np.sqrt(2)*sx)) * erf(L/(np.sqrt(2)*sy)))
 
 ```{code-cell} ipython3
 :tags: [hide-input]
-fig, ax = plt.subplots(figsize=(6, 6), layout="compressed")
+fig, ax = plt.subplots(figsize=(6.5, 6), layout="compressed")
 im = ax.imshow(
     src_gauss.fields[0].data, origin="lower",
-    extent=extent_arcsec(gauss_grid), cmap="magma", vmin=.5e-3, vmax=1.65e-3,
+    extent=extent_arcsec(gauss_grid), cmap="magma", vmin=.55e-3, vmax=1.65e-3,
 )
 add_pixel_grid(ax, gauss_grid, major_step=2, lw=1)
 ax.add_patch(Ellipse((0, 0), 2*sx, 2*sy, fill=False, ec="C0", ls="--", lw=1.5))
-ax.text(5, 5, r"1$\sigma$", color="C0", fontsize=12)
+ax.text(.7*sx, .7*sy, r"1$\sigma$", color="C0", fontsize=12)
+ax.set_aspect("equal")
 ax.set_xlabel("arcsec")
 ax.set_ylabel("arcsec")
-cbar = fig.colorbar(
-    im, ax=ax, label="dimensionless weight", location="right",
-    shrink=1.0, pad=0,
-)
+cbar = fig.colorbar(im, ax=ax, label="dimensionless weight", shrink=1.0)
 cbar.formatter.set_powerlimits((-3, -3))
 cbar.update_ticks()
 plt.show()
