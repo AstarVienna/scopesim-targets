@@ -472,7 +472,7 @@ this must always result in {math}`\sum_{ij} w_{ij} < 1.0`, although the practica
 
 In cases where a finite profile overflows the field-of-view, the expected analytic total can still be calculated.
 For the `Box`, this can be written as {math}`\text{area}(\text{box} \cap \text{FOV}) / (w_x\,w_y)`.
-For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` the map sums to
+For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` (both in angular units), the map sums to
 {math}`\operatorname{erf}\left(\frac{\sqrt{2}\,W}{4\,\sigma_x}\right)\operatorname{erf}\left(\frac{\sqrt{2}\,H}{4\,\sigma_y}\right) < 1`.
 We will use these formulae to cross-check what the code does in the examples below.
 Since the pixel weights are already scaled to their contriution to the _total_ integral {math}`P` anyway,

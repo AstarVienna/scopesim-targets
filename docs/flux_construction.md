@@ -342,15 +342,15 @@ The results for the three cases are what we would expect:
 * Finally for the all-odd grid, the whole weight ends up in the central pixel, which contains a value of 1.
 
 ### Gaussian truncation
-```{TODO}
-Check erf with scaling page.
-```
 
-and `Gaussian` normalizes the image with that **analytic** total (unit amplitude here, so {math}`A_\mathrm{eff} = 2\pi\sigma_x\sigma_y`), not the sum of the rendered grid.
+
+{math}`\operatorname{erf}\left(L_x/\sqrt{2}\,\sigma_x\right)\,\operatorname{erf}\left(L_y/\sqrt{2}\,\sigma_y\right)`
+{math}`A_\mathrm{eff} = 2\pi\sigma_x\sigma_y`
+and `Gaussian` normalizes the image with that **analytic** total (unit amplitude here, so ), not the sum of the rendered grid.
 The stored spectrum therefore always carries the *full* stated brightness, and the image openly reports how much of it is actually inside the window.
 Because the Gaussian is smooth (no sharp edge, no central cusp), that window fraction even has its own closed form:
 for {math}`\theta = 0` and a centered window of half-widths {math}`L_x, L_y` it is the product of error functions
-{math}`\operatorname{erf}\!\bigl(L_x/\sqrt{2}\,\sigma_x\bigr)\,\operatorname{erf}\!\bigl(L_y/\sqrt{2}\,\sigma_y\bigr)`,
+,
 giving an analytic solution for the map sum.
 
 ```{code-cell} ipython3
@@ -363,22 +363,27 @@ gaussian = Gaussian(
     params={"x_stddev": sx, "y_stddev": sy},
 )
 src_gauss = gaussian.to_source(gauss_grid)
+wmap = src_gauss.fields[0].data
 
-fraction = src_gauss.fields[0].data.sum()
-total_in_spectrum = Observation(src_gauss.fields[0].spectrum, band).effstim(u.Jy)
+fraction = wmap.sum()
+spec_total = Observation(src_gauss.fields[0].spectrum, band).integrate()
 in_window = total_flux(src_gauss, band)
 
-# Independent analytic solution: centered window, half-width L = 28*0.5/2 = 7 arcsec.
-L = gauss_grid["width"] * 0.5 / 2
-frac_analytic = float(erf(L/(np.sqrt(2)*sx)) * erf(L/(np.sqrt(2)*sy)))
+Lx = gauss_grid["width"]*u.pix * gauss_grid["pixel_scale"]
+Ly = gauss_grid["height"]*u.pix * gauss_grid["pixel_scale"]
+frac_analytic = erf((np.sqrt(2)*Lx)/(4*sx*u.arcsec)) * erf((np.sqrt(2)*Ly)/(4*sy*u.arcsec))
+```
+
+```{TODO}
+rm the *u.pix and *u.arcsec above once units are fully in grid and model
 ```
 
 ```{code-cell} ipython3
 :tags: [hide-input]
 fig, ax = plt.subplots(figsize=(6.5, 6), layout="compressed")
 im = ax.imshow(
-    src_gauss.fields[0].data, origin="lower",
-    extent=extent_arcsec(gauss_grid), cmap="magma", vmin=.55e-3, vmax=1.65e-3,
+    wmap, origin="lower", extent=extent_arcsec(gauss_grid),
+    cmap="magma", vmin=.55e-3, vmax=1.65e-3,
 )
 add_pixel_grid(ax, gauss_grid, major_step=2, lw=1)
 ax.add_patch(Ellipse((0, 0), 2*sx, 2*sy, fill=False, ec="C0", ls="--", lw=1.5))
@@ -395,13 +400,12 @@ plt.show()
 ```{code-cell} ipython3
 :tags: [hide-input]
 pd.DataFrame({
-    "quantity": ["carried fraction (weight-map sum)",
-                 "analytic window fraction (erf product)",
+    "quantity": ["weightmap sum",
+                 "analytic window fraction",
                  "flux carried by spectrum (analytic total)",
                  "in-window flux (fraction \u00d7 total)"],
     "value": [fraction, frac_analytic,
-              total_in_spectrum.value, in_window.value],
-    "unit": ["(dimensionless)", "(dimensionless)", "Jy", "Jy"],
+              spec_total, in_window],
 }).style.format({"value": "{:.3f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
@@ -481,7 +485,7 @@ plt.show()
 
 <!-- my text -->
 The grid lines along the x-axis match the pixels of the 0.8 arcsec/pix grid.
-Gray dashed lines marks the pixels of the coarsest 3.2 arcsec/pix grid.
+Gray dashed lines marks the pixels of the coarsest 3.2 arcsec/pix grid, solid gray line is set at {math}`1\,\sigma`.
 Note that in this case, because the number of pixels is odd (5 × 5), it starts with a half-pixel in the center.
 All subsequent finer grid are even-numbered and thus can start with a full pixel.
 
