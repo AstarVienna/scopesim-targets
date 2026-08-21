@@ -276,7 +276,7 @@ We examine all three possible cases:
 * _even_ in one direction, but _odd_ in the other, so 2 pixels share the center
 * an _odd_ number of pixels in both directions, finally resulting in a single central pixel
 
-In the plots below, the center point is always marked with a red cross.
+In the plots below, the center point is always marked with a teal cross.
 
 ```{code-cell} ipython3
 large_grids = [
@@ -303,7 +303,7 @@ for ax, large_grid in zip(axes, large_grids):
         wmap, origin="lower", extent=extent_arcsec(large_grid),
         cmap=cmap, vmin=0, vmax=1,
     )
-    ax.scatter(0, 0, s=50, c="r", marker="x")
+    ax.scatter(0, 0, s=50, c="C0", marker="x")
     add_pixel_grid(ax, large_grid, major_step=10, alpha=.8)
     ax.set_xlabel("arcsec")
     ax.set_title(large_grid["title"])
@@ -382,7 +382,7 @@ im = ax.imshow(
 )
 add_pixel_grid(ax, gauss_grid, major_step=2, lw=1)
 ax.add_patch(Ellipse((0, 0), 2*sx, 2*sy, fill=False, ec="C0", ls="--", lw=1.5))
-ax.text(.7*sx, .7*sy, r"1$\sigma$", color="C0", fontsize=12)
+ax.text(.75*sx, .75*sy, r"1$\sigma$", color="C0", fontsize=14)
 ax.set_aspect("equal")
 ax.set_xlabel("arcsec")
 ax.set_ylabel("arcsec")
@@ -428,7 +428,7 @@ grids = [
     for scale, npix in zip(scales, npixs)
 ]
 
-sigma = 6.0
+sigma = 4.0
 gauss = Gaussian(
     spectrum=flat_spec,
     brightness=("V", TOTAL_FLUX),
