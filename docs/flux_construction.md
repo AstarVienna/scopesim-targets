@@ -400,33 +400,29 @@ plt.show()
 ```{code-cell} ipython3
 :tags: [hide-input]
 pd.DataFrame({
-    "quantity": [
-        "weightmap sum",
-        "analytic window fraction",
-        "total flux in spectrum",
-        "in-window flux (fraction \u00d7 total)"
-    ],
-    "value": [
-        fraction,
-        analytic,
-        spec_total.round(),
-        in_window.round(),
-    ],
+    "quantity": ["weightmap sum", "analytic window fraction"],
+    "value": [fraction, analytic],
 }).style.format({"value": "{:.3f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
+```{code-cell} ipython3
+:tags: [hide-input]
+pd.DataFrame({
+    "quantity": [
+        "total flux in spectrum",
+        "in-window flux (fraction \u00d7 total)"
+    ],
+    "value": [spec_total, in_window],
+}).style.format({"value": "{:.1f}"}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty).hide(axis="index")
+```
 
-The spectrum carries the full {math}`3.55\;\mathrm{Jy}` exactly, no matter how the window clips the profile, and the measured weight-map sum lands on the analytic erf fraction to a fraction of a percent.
-Only ~70% of the flux is actually inside this particular field of view; the rest is in the wings beyond the edge.
-This is deliberate: if the image were instead re-normalized so it always summed to 1 (matching the window rather than the profile),
-the clipped light would be silently redistributed back among the visible pixels,
-and the in-window flux would come out at the full {math}`3.55\;\mathrm{Jy}` regardless of how much of the profile was actually excluded.
+
 
 ### `Gaussian` in different grids
-Unlike the box, a Gaussian's carried flux is a *quadrature approximation* of an integral, so it can in principle depend on the input pixel scale.
-Sampled well relative to {math}`\sigma`, though, it barely moves, because the window fraction being measured is a geometric property,
-not a discretization artifact -- and we can check that directly against the erf solution:
+
 
 ```{code-cell} ipython3
 fov = 16.0*u.arcsec
