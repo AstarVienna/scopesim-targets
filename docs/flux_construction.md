@@ -371,7 +371,7 @@ in_window = total_flux(src_gauss, band)
 
 Lx = gauss_grid["width"]*u.pix * gauss_grid["pixel_scale"]
 Ly = gauss_grid["height"]*u.pix * gauss_grid["pixel_scale"]
-frac_analytic = erf((np.sqrt(2)*Lx)/(4*sx*u.arcsec)) * erf((np.sqrt(2)*Ly)/(4*sy*u.arcsec))
+analytic = erf((np.sqrt(2)*Lx)/(4*sx*u.arcsec)) * erf((np.sqrt(2)*Ly)/(4*sy*u.arcsec))
 ```
 
 ```{TODO}
@@ -400,12 +400,18 @@ plt.show()
 ```{code-cell} ipython3
 :tags: [hide-input]
 pd.DataFrame({
-    "quantity": ["weightmap sum",
-                 "analytic window fraction",
-                 "flux carried by spectrum (analytic total)",
-                 "in-window flux (fraction \u00d7 total)"],
-    "value": [fraction, frac_analytic,
-              spec_total, in_window],
+    "quantity": [
+        "weightmap sum",
+        "analytic window fraction",
+        "total flux in spectrum",
+        "in-window flux (fraction \u00d7 total)"
+    ],
+    "value": [
+        fraction,
+        analytic,
+        spec_total.round(),
+        in_window.round(),
+    ],
 }).style.format({"value": "{:.3f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
@@ -446,8 +452,7 @@ for grid in grids:
     carried.append(wmap.sum())
     profiles.append(x_cross_section(wmap, grid["pixel_scale"].value))
 
-L = fov.to_value(u.arcsec) / 2
-intrinsic = float(erf(L/(np.sqrt(2)*sigma))**2)
+analytic = float(erf((np.sqrt(2)*fov.to_value(u.arcsec))/(4*sigma))**2)
 ```
 
 ```{code-cell} ipython3
@@ -457,7 +462,7 @@ ax.plot(scales, carried, marker="o", c="C0")
 ax.set_xscale("log")
 ax.set_xinverted(True)
 ax.set_ylim(0.9, 0.93)
-ax.axhline(intrinsic, color="gray", ls=":", label="analytic erf fraction")
+ax.axhline(analytic, color="gray", ls=":", label="analytic erf fraction")
 ax.set_xlabel(r"$\varpi_{src}$ [arcsec/pixel]")
 ax.set_ylabel("carried fraction  (weight-map sum)")
 ax.set_title(f"Gaussian $\\sigma$={sigma}\u2033, fixed {fov} window")

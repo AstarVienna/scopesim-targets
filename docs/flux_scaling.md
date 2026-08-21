@@ -470,6 +470,11 @@ this will result in {math}`\sum_{ij} w_{ij} = 1.0`, ignoring any floating point 
 For a technically infinite profile (e.g. `Gaussian`), which will always only be partially inside a finite grid,
 this must always result in {math}`\sum_{ij} w_{ij} < 1.0`, although the practical difference can be minimal.
 
+```{TODO}
+Rewrite this to refer to construction page.
+Decide what goes there and what stays here.
+```
+
 In cases where a finite profile overflows the field-of-view, the expected analytic total can still be calculated.
 For the `Box`, this can be written as {math}`\text{area}(\text{box} \cap \text{FOV}) / (w_x\,w_y)`.
 For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` (both in angular units), the map sums to
