@@ -540,7 +540,7 @@ for ax, wmap, title in zip(
     ax.set_title(f"{title}\n$\\sum w_{{ij}}$ = {wmap.sum():.4f}")
 
 cbar = fig.colorbar(
-    im, ax=axes[-1], location="right", shrink=1.0,
+    im, ax=axes[-1], location="right", shrink=1.0, pad=0,
     label="dimensionless weight",
     ticks=np.linspace(2, 16, 8)*vmin,
 )
@@ -556,7 +556,7 @@ plt.show()
 pd.DataFrame({
     "Profile": ["Box", "Gaussian"],
     "Weightmap sum": [wmap_box.sum(), wmap_gauss.sum()],
-}).style.format({"value": "{:.4f}"}
+}).style.format({"Weightmap sum": "{:.3f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```

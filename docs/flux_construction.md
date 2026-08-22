@@ -170,6 +170,7 @@ the rasterization must ensure the sum of the weightmap is still consistent.
 The `Gaussian` on the other hand does _not_ have a defined border, meaning the rasterization itself is easier,
 but the second consequence is that no finite pixel grid can (theoretically) capture its full total.
 
+(sec:boxgrids)=
 ### `Box` in different grids
 The example below shows the same `Box` target realized onto four different pixel grids.
 The grids are given in terms of their side length (to ensure an odd number of pixels) at a constant field-of-view, resulting in pixel scale,
@@ -346,31 +347,15 @@ The results for the three cases are what we would expect:
 * Similarly with the odd and even grid, the flux is distributed over 2 pixels which get 0.5 each.
 * Finally for the all-odd grid, the whole weight ends up in the central pixel, which contains a value of 1.
 
-### Gaussian truncation
-
-```{TODO}
-Rewrite this to refer to construction page.
-Decide what goes there and what stays here.
-```
-
+### `Gaussian` truncation
 In cases where a finite profile overflows the field-of-view, the expected analytic total can still be calculated.
 For the `Box`, this can be written as {math}`\text{area}(\text{box} \cap \text{FOV}) / (w_x\,w_y)`.
 For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` (both in angular units), the map sums to
 {math}`\operatorname{erf}\left(\frac{\sqrt{2}\,W}{4\,\sigma_x}\right)\operatorname{erf}\left(\frac{\sqrt{2}\,H}{4\,\sigma_y}\right) < 1`.
-We will use these formulae to cross-check what the code does in the examples below.
 Since the pixel weights are already scaled to their contribution to the _total_ integral {math}`P` anyway,
 the scaling is unaffected by the extent of {math}`p` relative to the field-of-view,
 the only practical difference being {math}`\sum_{ij} w_{ij}`.
-
-
-{math}`\operatorname{erf}\left(L_x/\sqrt{2}\,\sigma_x\right)\,\operatorname{erf}\left(L_y/\sqrt{2}\,\sigma_y\right)`
-{math}`A_\mathrm{eff} = 2\pi\sigma_x\sigma_y`
-and `Gaussian` normalizes the image with that **analytic** total (unit amplitude here, so ), not the sum of the rendered grid.
-The stored spectrum therefore always carries the *full* stated brightness, and the image openly reports how much of it is actually inside the window.
-Because the Gaussian is smooth (no sharp edge, no central cusp), that window fraction even has its own closed form:
-for {math}`\theta = 0` and a centered window of half-widths {math}`L_x, L_y` it is the product of error functions
-,
-giving an analytic solution for the map sum.
+In the example below, we use an asymmetrical `Gaussian` to showcase this effect.
 
 ```{code-cell} ipython3
 sx, sy = 6.0, 4.0  # arcsec
@@ -442,10 +427,17 @@ pd.DataFrame({
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
 
-
+The agreement of the weightmap sum and the analytic solution down to {math}`<0.2\,\%` proofes that the scaling works correctly.
+As mentioned, the total flux _stored in the spectrum_ is unaffected by truncation,
+whereas the flux _inside the field-of-view window_ is the product of the spectrum's flux and the weightmap.
 
 ### `Gaussian` in different grids
+In the previous example, we used a rather fine grid that sampled the `Gaussian` profile very well.
+If the grid is much coarser relative to the profile (as characterized by its {math}`\sigma_x` and {math}`\sigma_y`),
+the deviation from the analytic solution increases slightly due to the finite approximation of the sampling.
 
+Below we use a symmetrical `Gaussian` sampled onto different pixel grids, while keeping the fiel-of-view constant,
+similar to the `Box` example shown in [](#sec:boxgrids).
 
 ```{code-cell} ipython3
 fov = 16.0*u.arcsec
@@ -471,7 +463,7 @@ for grid in grids:
     carried.append(wmap.sum())
     profiles.append(x_cross_section(wmap, grid["pixel_scale"].value))
 
-analytic = float(erf((np.sqrt(2)*fov.to_value(u.arcsec))/(4*sigma))**2)
+analytic = erf((np.sqrt(2)*fov.to_value(u.arcsec))/(4*sigma))**2
 ```
 
 ```{code-cell} ipython3
@@ -481,6 +473,7 @@ fig, ax = plt.subplots(figsize=(5.5, 4), layout="compressed")
 ax.plot(scales, carried, marker="o", c="C0")
 ax.set_xscale("log")
 ax.set_xinverted(True)
+ax.set_xticks(scales.value, labels=[str(s.value) for s in scales])
 ax.set_ylim(0.9, 0.93)
 ax.axhline(analytic, color="gray", ls=":", label="analytic erf fraction")
 ax.set_xlabel(r"$\varpi_{src}$ [arcsec/pixel]")
@@ -489,6 +482,14 @@ ax.set_title(f"Gaussian $\\sigma$={sigma}\u2033, fixed {fov} window")
 ax.legend()
 plt.show()
 ```
+
+We can see that the weightmap sum approaches the analytic total the finer the grid is.
+The y-axis on this plot is zoomed in, so the difference is somewhat exaggregated:
+The actual deviation even for the worst grid is only around {math}`1\,\%`, see table below.
+
+bla bla w/px scales with area
+{math}`\propto\varpi^2`
+first to last x32 -> ^2 1024 -> ~3 OOM, see yax
 
 ```{code-cell} ipython3
 :tags: [hide-input]
@@ -509,7 +510,6 @@ ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
 plt.show()
 ```
 
-<!-- my text -->
 The grid lines along the x-axis match the pixels of the 0.8 arcsec/pix grid.
 Gray dashed lines marks the pixels of the coarsest 3.2 arcsec/pix grid, solid gray line is set at {math}`1\,\sigma`.
 Note that in this case, because the number of pixels is odd (5 × 5), it starts with a half-pixel in the center.
@@ -522,10 +522,12 @@ pd.DataFrame({
     "scale [arcsec/px]": scales,
     "px / sigma": sigma / scales,
     "carried fraction": carried,
+    "deviation from analytic": (carried/analytic),
 }).style.format({
     "scale [arcsec/px]": "{:.1f}",
     "px / sigma": "{:.2f}",
     "carried fraction": "{:.4f}",
+    "deviation from analytic": "{:.2%}",
 }).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
@@ -533,8 +535,10 @@ pd.DataFrame({
 
 
 ## Point source, Box, and Gaussian
-Finally, put all three representations side by side: a `Star` (all its flux in a single number, no image at all),
-the fully-contained `Box` from the first section, and a Gaussian compact enough, relative to its window, to be (almost) fully contained too:
+```{TODO}
+Decide what to do with this.
+```
+
 
 ```{code-cell} ipython3
 star = Star(position=(0, 0), spectrum=flat_spec, brightness=("V", TOTAL_FLUX))
@@ -590,11 +594,6 @@ df_compare.style.format({"flux [Jy]": "{:.0f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
-
-All three sit right at {math}`3.55\;\mathrm{Jy}` -- the Gaussian case is very slightly under, because even a compact profile technically has infinite wings;
-at this size relative to its window that shortfall is far below what the plot can show.
-A point source has no such shortfall: with no spatial extent, there is nothing for a finite window to clip.
-
 
 ```{TODO}
 Consider linking to the next page(s).
