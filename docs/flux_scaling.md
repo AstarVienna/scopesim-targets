@@ -22,6 +22,7 @@ The total flux stored in the source is always the same product of those two:
 
 ```{math}
 :label: fdef
+
 F \;=\; W F_\mathrm{band}, \qquad F_\mathrm{band} \;=\; \int S(\lambda)\, T(\lambda)\; \mathrm{d}\lambda ,
 ```
 
@@ -63,6 +64,7 @@ Hidden by default to reduce clutter, expand if you want to see them:
 
 ```{code-cell} ipython3
 :tags: [hide-cell]
+
 sns.set_theme(style="darkgrid", palette="Set2")
 bbox_flx = {"boxstyle": "round", "fc": "white", "ec": "0.5", "alpha": 0.85}
 tbl_sty = [{
@@ -146,6 +148,7 @@ FV = Observation(scaled_spectrum, band).integrate()  # Integral under curve
 
 ```{tip}
 :class: margin
+
 We hide all the boring plotting and formatting code by default.
 Feel free to expand the cell to see it!
 ```
@@ -207,6 +210,7 @@ because the energy at any wavelength has been converted to a photon count.
 
 ```{admonition} Note on the "flat" spectrum shown here
 :class: note
+
 "Flat in AB magnitude" means flat in {math}`f_\nu`; converted to the per-wavelength photon density that `integrate()` sums, a constant {math}`f_\nu` becomes a falling {math}`\propto 1/\lambda` power law.
 That conversion -- between magnitude systems, {math}`f_\nu`, {math}`f_\lambda` and PHOTLAM -- is worth reading once in
 [synphot's units documentation](https://synphot.readthedocs.io/en/latest/synphot/units.html#counts-and-magnitudes);
@@ -218,6 +222,7 @@ For a point source, the `weight` is a simple scalar, so {math}`W = w` and eq. {e
 
 ```{math}
 :label: pnttotal
+
 F \;=\; w \cdot F_\mathrm{band}(\text{template})
 ```
 
@@ -267,6 +272,7 @@ We will see in the following section why that is **not** always the case, but if
 
 ```{math}
 :label: wmaptotal
+
 F \;=\; W \cdot F_\mathrm{band}(\text{scaled spectrum}), \qquad W \;=\; \sum_{ij} w_{ij} \approx 1
 ```
 
@@ -323,6 +329,7 @@ with the {math}`F(V)` taken from the spectrum, as shown in fig. [1](#fig:spectru
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, axes = plt.subplots(
     1, 3, figsize=(9, 3.8), gridspec_kw={"width_ratios": [1, 0.6, 1]},
     layout="compressed",
@@ -367,13 +374,22 @@ and the "total flux in spectrum, distributed over image" of the extended one.
 In other words, the product `weight(s) x band_flux(spectrum)` is constant, even if the scaling shifts.
 
 ```{code-cell} ipython3
-total_flux(src_box, band).round()
-```
-```{code-cell} ipython3
-total_flux(src_pnt, band).round()
-```
-```{code-cell} ipython3
-image.sum().round()
+:tags: [hide-input]
+
+pd.DataFrame({
+    "Quantity": [
+        "Box weightmap sum",
+        "Point source total",
+        "Image sum",
+    ],
+    "Flux": [
+        total_flux(src_box, band),
+        total_flux(src_pnt, band),
+        image.sum(),
+    ],
+}).style.format({"value": "{:.0f}"}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty).hide(axis="index")
 ```
 
 ## Brightness profiles
@@ -406,6 +422,7 @@ The `Box` is defined as constant ({math}`A`) within the rectangle, and zero outs
 
 ```{math}
 :label: pbox
+
 p(x, y)\:=\:\left\{\begin{array}{rl}
 A : & \frac{w_x}{2} \leq x \leq \frac{w_x}{2} \text{ and } \frac{w_y}{2} \leq y \leq \frac{w_y}{2} \\
 0 : & \text{else}
@@ -441,6 +458,7 @@ This will become important a bit later.
 ### Rasterization
 ```{tip}
 :class: margin
+
 More details about the effects of rasterization can be found on the next page {doc}`flux_construction`.
 ```
 While the intrinsic brightness profile is {math}`p(x, y)`, the simulations work on a finite grid instead of continuous coordinates.
@@ -469,20 +487,7 @@ For a finite profile (e.g. `Box`) fully within the field-of-view,
 this will result in {math}`\sum_{ij} w_{ij} = 1.0`, ignoring any floating point imprecisions.
 For a technically infinite profile (e.g. `Gaussian`), which will always only be partially inside a finite grid,
 this must always result in {math}`\sum_{ij} w_{ij} < 1.0`, although the practical difference can be minimal.
-
-```{TODO}
-Rewrite this to refer to construction page.
-Decide what goes there and what stays here.
-```
-
-In cases where a finite profile overflows the field-of-view, the expected analytic total can still be calculated.
-For the `Box`, this can be written as {math}`\text{area}(\text{box} \cap \text{FOV}) / (w_x\,w_y)`.
-For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` (both in angular units), the map sums to
-{math}`\operatorname{erf}\left(\frac{\sqrt{2}\,W}{4\,\sigma_x}\right)\operatorname{erf}\left(\frac{\sqrt{2}\,H}{4\,\sigma_y}\right) < 1`.
-We will use these formulae to cross-check what the code does in the examples below.
-Since the pixel weights are already scaled to their contriution to the _total_ integral {math}`P` anyway,
-the scaling is unaffected by the extent of {math}`p` relative to the field-of-view,
-the only practical difference being {math}`\sum_{ij} w_{ij}`.
+We will go into more detail about this truncation in {doc}`flux_construction`.
 
 ```{tip}
 The spectrum stores the total flux, which always corresponds to the _intrinsic total_.
@@ -496,9 +501,8 @@ Since the `Box` fits comforably withing the field-of-view, its weightmap sums to
 The `Gaussian`, being technically infinite, loses about 6 % of its flux outside the window.
 
 ```{TODO}
-Check analytic Gauss solution and compare to real grid sum!
+Calculate analytic Gauss solution and compare to real grid sum!
 ```
-
 
 ```{code-cell} ipython3
 box_grid = {"pixel_scale": 0.5*u.arcsec/u.pixel, "width": 15, "height": 15}
@@ -518,26 +522,40 @@ wmap_gauss = Gaussian(
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 vmax = max(wmap_box.max(), wmap_gauss.max())
+cmap = plt.get_cmap("magma", 5)
 extent = extent_arcsec(box_grid)
 
 fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=True, layout="compressed")
 for ax, wmap, title in zip(
     axes, (wmap_box, wmap_gauss), ("Box (exact edges)", "Gaussian (truncated wings)")
 ):
-    im = ax.imshow(wmap, origin="lower", extent=extent, cmap="magma", vmax=vmax)
+    im = ax.imshow(wmap, origin="lower", extent=extent, cmap=cmap, vmax=vmax)
     add_pixel_grid(ax, box_grid)
     ax.grid(False, which="major")
     ax.set_aspect("equal")
     ax.set_xticks(np.arange(*np.ceil(extent)[:2]))
     ax.set_title(f"{title}\n$\\sum w_{{ij}}$ = {wmap.sum():.4f}")
-fig.colorbar(im, ax=axes[1])
+
+cbar = fig.colorbar(
+    im, ax=axes[-1], location="right", shrink=1.0,
+    label="dimensionless weight",
+    ticks=[0, 0.2, 0.4, 0.6, 0.8, 1],
+)
+plt.subplots_adjust(wspace=0.2)
 plt.show()
 ```
 
 ```{code-cell} ipython3
-print(f"Weightmap sum Box     : {wmap_box.sum():.4f}")
-print(f"Weightmap sum Gaussian: {wmap_gauss.sum():.4f}")
+:tags: [hide-input]
+
+pd.DataFrame({
+    "Profile": ["Box", "Gaussian"],
+    "Weightmap sum": [wmap_box.sum(), wmap_gauss.sum()],
+}).style.format({"value": "{:.4f}"}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty).hide(axis="index")
 ```
 
 ### Non-integrable profiles
@@ -809,6 +827,7 @@ flux_box = band_flux(src_box.fields[0].spectrum, band)
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.5, 4), sharey=True, layout="compressed")
 xax = np.linspace(-4.4, 4.4, 45)
 
@@ -889,6 +908,7 @@ vmax = max(data_total.max(), data_sb.max())
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, axes = plt.subplots(1, 2, figsize=(8, 4), sharey=True)  # , layout="compressed"
 extent = extent_arcsec(grid)
 for ax, data, title in zip(

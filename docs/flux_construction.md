@@ -56,6 +56,7 @@ Hidden by default to reduce clutter, expand if you want to see them:
 
 ```{code-cell} ipython3
 :tags: [hide-cell]
+
 sns.set_theme(style="darkgrid", palette="Set2")
 bbox_flx = {"boxstyle": "round", "fc": "white", "ec": "0.5", "alpha": 0.85}
 tbl_sty = [{
@@ -204,6 +205,7 @@ box = Box(
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, axes = plt.subplots(2, 2, figsize=(7, 5), layout="compressed")
 lws = [1.2, 1.0, 0.8, 0.6]
 extent = extent_arcsec(grids[0])  # identical for all
@@ -252,6 +254,7 @@ plt.show()
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 pd.DataFrame({
     "npix": npixs,
     "scale": [s for s in scales],  # to get unit in cells
@@ -289,6 +292,7 @@ large_grids = [
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, axes = plt.subplots(1, 3, figsize=(8, 4), layout="compressed")
 cmap = plt.get_cmap("magma", 5)
 sums = []
@@ -324,6 +328,7 @@ plt.show()
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 pd.DataFrame({
     "grid": [f"{g['width']} \u00d7 {g['height']}" for g in large_grids],
     "weight/pix": maxs,
@@ -342,6 +347,20 @@ The results for the three cases are what we would expect:
 * Finally for the all-odd grid, the whole weight ends up in the central pixel, which contains a value of 1.
 
 ### Gaussian truncation
+
+```{TODO}
+Rewrite this to refer to construction page.
+Decide what goes there and what stays here.
+```
+
+In cases where a finite profile overflows the field-of-view, the expected analytic total can still be calculated.
+For the `Box`, this can be written as {math}`\text{area}(\text{box} \cap \text{FOV}) / (w_x\,w_y)`.
+For the `Gaussian` the integral over a centered window of width {math}`W` and height {math}`H` (both in angular units), the map sums to
+{math}`\operatorname{erf}\left(\frac{\sqrt{2}\,W}{4\,\sigma_x}\right)\operatorname{erf}\left(\frac{\sqrt{2}\,H}{4\,\sigma_y}\right) < 1`.
+We will use these formulae to cross-check what the code does in the examples below.
+Since the pixel weights are already scaled to their contribution to the _total_ integral {math}`P` anyway,
+the scaling is unaffected by the extent of {math}`p` relative to the field-of-view,
+the only practical difference being {math}`\sum_{ij} w_{ij}`.
 
 
 {math}`\operatorname{erf}\left(L_x/\sqrt{2}\,\sigma_x\right)\,\operatorname{erf}\left(L_y/\sqrt{2}\,\sigma_y\right)`
@@ -380,6 +399,7 @@ rm the *u.pix and *u.arcsec above once units are fully in grid and model
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, ax = plt.subplots(figsize=(6.5, 6), layout="compressed")
 im = ax.imshow(
     wmap, origin="lower", extent=extent_arcsec(gauss_grid),
@@ -399,6 +419,7 @@ plt.show()
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 pd.DataFrame({
     "quantity": ["weightmap sum", "analytic window fraction"],
     "value": [fraction, analytic],
@@ -406,8 +427,10 @@ pd.DataFrame({
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
+
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 pd.DataFrame({
     "quantity": [
         "total flux in spectrum",
@@ -453,6 +476,7 @@ analytic = float(erf((np.sqrt(2)*fov.to_value(u.arcsec))/(4*sigma))**2)
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, ax = plt.subplots(figsize=(5.5, 4), layout="compressed")
 ax.plot(scales, carried, marker="o", c="C0")
 ax.set_xscale("log")
@@ -468,6 +492,7 @@ plt.show()
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, ax = plt.subplots(figsize=(7, 4), layout="compressed")
 for x in profiles[0][0]:
     ax.axvline(x, c="gray", ls="--", alpha=.5)
@@ -492,6 +517,7 @@ All subsequent finer grid are even-numbered and thus can start with a full pixel
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 pd.DataFrame({
     "scale [arcsec/px]": scales,
     "px / sigma": sigma / scales,
@@ -542,6 +568,7 @@ df_compare = pd.DataFrame({
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 fig, ax = plt.subplots(figsize=(6, 4), layout="compressed")
 sns.barplot(data=df_compare, x="representation", y="flux [Jy]",
             hue="representation", palette="Set2", legend=False, width=0.6, ax=ax)
@@ -558,6 +585,7 @@ plt.show()
 
 ```{code-cell} ipython3
 :tags: [hide-input]
+
 df_compare.style.format({"flux [Jy]": "{:.0f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
