@@ -387,7 +387,7 @@ pd.DataFrame({
         total_flux(src_pnt, band),
         image.sum(),
     ],
-}).style.format({"value": "{:.0f}"}
+}).style.format({"Flux": "{:.0f}"}
 ).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty).hide(axis="index")
 ```
@@ -523,15 +523,16 @@ wmap_gauss = Gaussian(
 ```{code-cell} ipython3
 :tags: [hide-input]
 
-vmax = max(wmap_box.max(), wmap_gauss.max())
-cmap = plt.get_cmap("magma", 5)
+vmin = 1e-3
+vmax = round(max(wmap_box.max(), wmap_gauss.max()) / vmin) * vmin
+cmap = plt.get_cmap("magma", 8)
 extent = extent_arcsec(box_grid)
 
 fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=True, layout="compressed")
 for ax, wmap, title in zip(
     axes, (wmap_box, wmap_gauss), ("Box (exact edges)", "Gaussian (truncated wings)")
 ):
-    im = ax.imshow(wmap, origin="lower", extent=extent, cmap=cmap, vmax=vmax)
+    im = ax.imshow(wmap, origin="lower", extent=extent, cmap=cmap, vmin=vmin, vmax=vmax)
     add_pixel_grid(ax, box_grid)
     ax.grid(False, which="major")
     ax.set_aspect("equal")
@@ -541,8 +542,10 @@ for ax, wmap, title in zip(
 cbar = fig.colorbar(
     im, ax=axes[-1], location="right", shrink=1.0,
     label="dimensionless weight",
-    ticks=[0, 0.2, 0.4, 0.6, 0.8, 1],
+    ticks=np.linspace(2, 16, 8)*vmin,
 )
+cbar.formatter.set_powerlimits((np.log10(vmin), np.log10(vmin)))
+cbar.update_ticks()
 plt.subplots_adjust(wspace=0.2)
 plt.show()
 ```
