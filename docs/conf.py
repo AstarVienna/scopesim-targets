@@ -8,7 +8,7 @@ extensions = [
     "sphinx.ext.todo",  # Allows ".. todo::" in docstrings
     "sphinx.ext.autodoc",  # For API documentation from docstrings
     "sphinx.ext.autosummary",  # For API documentation from docstrings
-    # "sphinx.ext.intersphinx",
+    "sphinx.ext.intersphinx",  # For cross-linking API docs
     # "sphinx.ext.inheritance_diagram",
     # "sphinx.ext.mathjax",
     # "sphinx.ext.extlinks",
@@ -34,6 +34,14 @@ todo_include_todos = True  # Actually process ".. todo::" thingies
 # Link to repo for "sphinx_issues" extension
 issues_github_path = "AstarVienna/scopesim-targets"
 
+# Enables cross-linking API docs via e.g. {class}`~scopesim.Simulation`
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
+    "astropy": ("https://docs.astropy.org/en/stable/", None),
+    "scopesim": ("https://scopesim.readthedocs.io/en/latest/", None),
+}
+
 source_encoding = "utf-8"
 # Link file types to parsers
 source_suffix = {
@@ -53,6 +61,7 @@ html_theme_options = {
     "use_repository_button": True,
     "use_download_button": True,  # allow download of individual pages
     "home_page_in_toc": True,
+    "show_toc_level": 2,  # page-level TOC on the right sidebar, 3 -> up to ##
 }
 
 html_logo = "_static/logo.png"  # link to logo
