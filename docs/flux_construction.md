@@ -154,7 +154,7 @@ def x_cross_section(image, pixel_scale=1.0):
 ```
 
 ## Different pixel scales
-While briefly explored in [](#sec:flatgrids), this section will expand somewhat on the effects that a different --
+While briefly explored in {ref}`sec:flatgrids`, this section will expand somewhat on the effects that a different --
 and sometimes suboptimal -- pixel grid has on a target's rasterization.
 We will again use the {class}`~scopesim_targets.extended_source.Box` and {class}`~scopesim_targets.extended_source.Gaussian` target classes introduced previously as examples,
 as both come with their own intricacies: The `Box` has a sharp border,
@@ -430,7 +430,7 @@ If the grid is much coarser relative to the profile (as characterized by its {ma
 the deviation from the analytic solution increases slightly due to the finite approximation of the sampling.
 
 Below we use a symmetrical `Gaussian` sampled onto different pixel grids, while keeping the field-of-view constant,
-similar to the `Box` example shown in [](#sec:boxgrids).
+similar to the `Box` example shown in {ref}`sec:boxgrids`.
 
 ```{code-cell} ipython3
 fov = 16.0*u.arcsec
@@ -483,7 +483,7 @@ We can see that the weightmap sum approaches the analytic total the finer the gr
 The y-axis on this plot is zoomed in, so the difference is somewhat exaggerated:
 The actual deviation even for the worst grid is only around {math}`1\,\%`, see table below.
 
-As previously discussed in [](#sec:boxgrids), the weight stored in each pixel scales with the pixel's "area", i.e. {math}`w_{ij}\propto\Omega`.
+As previously discussed in {ref}`sec:boxgrids`, the weight stored in each pixel scales with the pixel's "area", i.e. {math}`w_{ij}\propto\Omega`.
 The plot below visualizes this by showing the cross-section of each weightmap, from the center outwards along the x-direction.
 Unlike the `Box` example, where the constant weight within the box is directly scaled by the pixel's "area",
 the `Gaussian` (or any other profile with spatial structure) scales the entire profile.
