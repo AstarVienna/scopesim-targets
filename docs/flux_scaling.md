@@ -294,7 +294,7 @@ Link the "spiral two component" example from Templates here.
 ### Weightmap and flux
 The example below creates a simple rectangular {class}`~scopesim_targets.extended_source.Box` target to visualize the concept of extended sources.
 We will use the same total flux and the same simple spectrum as with the point source example above, so all the numbers should be identical.
-Since the target itself is a parametrized description, we need to define a `grid` to evaluate it on -- more about that in [](#sec:raster) below.
+Since the target itself is a parametrized description, we need to define a `grid` to evaluate it on -- more about that in {ref}`sec:raster` below.
 The `Box` is immediately converted to a {class}`~scopesim.Source` object.
 The conversion method (also referred to as "concretization" elsewhere in the documentation) takes the `grid` as an argument.
 
@@ -325,7 +325,7 @@ image = wmap * FV_box          # image in ph / s / cm2  (per pixel)
 
 The plots below are arguably not very spectacular, but serve the purpose of showing the rasterization,
 as well as the unit conversion according to eq. {eq}`wmaptotal` (strictly speaking the result is {math}`F_{ij}` rather than {math}`F`),
-with the {math}`F(V)` taken from the spectrum, as shown in fig. [1](#fig:spectrumflux).
+with the {math}`F(V)` taken from the spectrum, as shown in {numref}`fig:spectrumflux`.
 
 ```{code-cell} ipython3
 :tags: [hide-input]
