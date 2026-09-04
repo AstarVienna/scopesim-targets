@@ -325,7 +325,7 @@ image = wmap * FV_box          # image in ph / s / cm2  (per pixel)
 
 The plots below are arguably not very spectacular, but serve the purpose of showing the rasterization,
 as well as the unit conversion according to eq. {eq}`wmaptotal` (strictly speaking the result is {math}`F_{ij}` rather than {math}`F`),
-with the {math}`F(V)` taken from the spectrum, as shown in fig. [1](#fig:spectrumflux).
+with the {math}`F(V)` taken from the spectrum, as shown in {numref}`fig:spectrumflux`.
 
 ```{code-cell} ipython3
 :tags: [hide-input]
