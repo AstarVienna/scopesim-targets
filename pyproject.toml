@@ -89,6 +89,11 @@ filterwarnings = [
     "ignore:.*negative flux or throughput.*:astropy.utils.exceptions.AstropyUserWarning",
 ]
 
+
+[tool.coverage.run]
+patch = ["subprocess"]
+source_pkgs = ["scopesim_targets"]
+
 [tool.coverage.report]
 omit = [
     "tests/*",
