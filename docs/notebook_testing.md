@@ -94,15 +94,19 @@ before that notebook's own cells. This is for test-only environment wiring that
 must not appear in the published docs — linking the IRDB, for example:
 
 ```python
-from scopesim import link_irdb
+import os
+import scopesim
 
-link_irdb()
+scopesim.link_irdb(os.environ["IRDB_PATH"])
 ```
 
-It is executed in the kernel, not inserted as a cell, so reported cell numbers
-still match the `{code-cell}` blocks in the source and the notebook object is
-unchanged. If it fails, the notebook fails immediately with
-`notebook setup failed` and its traceback.
+It runs as a cell appended to the end of the notebook and removed again
+afterwards, so reported cell numbers still match the `{code-cell}` blocks in
+the source and the notebook object ends up unchanged. (It cannot simply be
+executed at index 0: nbclient writes each executed cell back into
+`nb.cells[index]`, which would replace — and skip — the notebook's first cell.)
+If it fails, the notebook fails immediately with `notebook setup failed` and
+its traceback.
 
 Override the path with `--notebook-setup=PATH` (useful when reusing this plugin
 in another repo). Absent file, no injection. Keep it to environment wiring: the
@@ -111,16 +115,35 @@ actually gets.
 
 ## Flags
 
-| Flag                    | Effect                                                                        |
-| ----------------------- | ----------------------------------------------------------------------------- |
-| `--notebooks`           | Enable collection of notebooks. Without it, nothing in `docs/` is collected.  |
-| `--notebook-setup=PATH` | Use `PATH` instead of `docs/_notebook_setup.py`.                              |
-| `--notebook-keep-going` | Run a notebook's remaining cells after a cell fails and report every failure. |
+| Flag | Effect |
+| --- | --- |
+| `--notebooks` | Enable collection of notebooks. Without it, nothing in `docs/` is collected. |
+| `--notebook-setup=PATH` | Use `PATH` instead of `docs/_notebook_setup.py`. |
 
 ## Defaults
 
 - Kernel cwd is the notebook's own directory, matching the Sphinx build.
 - 600 s per notebook, 120 s for kernel startup (`TIMEOUT` / `STARTUP_TIMEOUT` in
   `conftest.py`).
-- Coverage from the kernel subprocess is collected via pytest-cov; run with
-  `--cov=scopesim_targets`.
+- Notebooks run in a kernel subprocess, so coverage needs
+  `patch = ["subprocess"]` under `[tool.coverage.run]`. Without it the run is
+  green and the report silently contains no notebook coverage at all.
+  `source_pkgs = ["scopesim_targets"]` keeps coverage from tracing ipykernel's
+  throwaway `/tmp/ipykernel_*/` cell files. Do not use `source` for this: it
+  resolves relative to the cwd, which for the kernel is `docs/`, and the
+  package then goes unmeasured.
+- Two CoverageWarnings (`module-not-imported`, `no-data-collected`) are
+  expected in this job. The parent pytest process really does import nothing
+  of the package; the data comes from the kernels.
+
+## Repo config
+
+`norecursedirs = ["docs"]` keeps a plain `pytest .` from descending into this
+directory. Do **not** use `testpaths` to achieve the same thing: it redefines
+the default collection root for every pytest invocation in the repo, including
+jobs in reusable workflows, and it silently stopped the doctest job from
+collecting anything (the doctests live in `scopesim_targets/`, not `tests/`).
+
+The notebook dependencies (jupytext, nbclient, nbformat) are imported lazily
+inside functions so that `conftest.py` stays importable in jobs that don't
+install them.

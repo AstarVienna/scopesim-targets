@@ -12,7 +12,6 @@ Usage::
 
 import asyncio
 import sys
-# from os import environ
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
@@ -42,20 +41,12 @@ def pytest_addoption(parser):
             "appear in the published docs."
         ),
     )
-    parser.addoption(
-        "--notebook-keep-going",
-        action="store_true",
-        default=False,
-        help=(
-            "Keep executing a notebook's remaining cells after a cell fails "
-            "and report every failure. Only useful for notebooks whose cells "
-            "are independent; sequential ones produce cascades."
-        ),
-    )
 
 
 def pytest_collect_file(file_path: Path, parent):
     if file_path.suffix != ".md":
+        return None
+    if ".ipynb_checkpoints" in file_path.parts:
         return None
     if not parent.config.getoption("--notebooks"):
         return None
@@ -125,14 +116,7 @@ def _complete_kernelspec(meta: dict) -> bool:
 
 
 def _needs(meta: dict) -> list[str]:
-    """Dependencies declared as ``myst_test: {needs: [...]}`` in front matter.
-
-    Namespaced so Sphinx/MyST-NB ignore it, and kept in the notebook itself
-    rather than a side-car config: the ordering constraint is a property of
-    the notebook, and the docs build depends on it just as much as the tests
-    do (myst-nb gives each document its own kernel, so a split chain can only
-    hand off through the filesystem there too).
-    """
+    """Dependencies as ``myst_test: {needs: [...]}`` in front matter."""
     raw = (meta.get("myst_test") or {}).get("needs") or []
     return [raw] if isinstance(raw, str) else list(raw)
 
@@ -150,12 +134,7 @@ def _read_notebook(path: Path):
 
 
 def _setup_source(config) -> str | None:
-    """Test-only preamble, executed in the kernel but never written to disk.
-
-    Injected rather than inserted as a cell: the notebook object stays exactly
-    as parsed, so reported cell numbers still match the ``{code-cell}`` blocks
-    in the .md source, and nothing leaks into outputs.
-    """
+    """Test-only preamble, executed in the kernel but never written to disk."""
     override = config.getoption("--notebook-setup")
     path = Path(override) if override else Path(__file__).parent / "_notebook_setup.py"
     if override and not path.exists():
@@ -166,12 +145,7 @@ def _setup_source(config) -> str | None:
 # --- ordering --------------------------------------------------------------
 
 def _components(deps: dict) -> dict:
-    """Map each notebook to an id shared by everything it is connected to.
-
-    Connectivity is undirected: A -> B and C -> B puts A, B and C in one
-    group, because they must all land on the same xdist worker in the right
-    relative order.
-    """
+    """Map each notebook to an id shared by everything it is connected to."""
     parent = {path: path for path in deps}
 
     def find(path):
@@ -246,14 +220,13 @@ def pytest_collection_modifyitems(config, items):
 
 class MystNotebookFile(pytest.File):
     def collect(self):
-        item = MystNotebookItem.from_parent(self, name=self.path.name)
+        item = MystNotebookItem.from_parent(self, name="notebook")
         item.needs = _needs(_front_matter(self.path.read_text(encoding="utf-8")))
         item.unmet = []
         # Warnings raised in *this* process by zmq/nbclient plumbing must not
         # be turned into errors by the project-wide filterwarnings=error:
         # an exception thrown inside the event loop strands a live kernel.
-        # (Warnings from notebook code itself happen in the kernel process and
-        # never reach pytest's filters at all.)
+        # (Warnings from notebook code itself happen in the kernel process.)
         item.add_marker(pytest.mark.filterwarnings("default::RuntimeWarning"))
         item.add_marker(pytest.mark.filterwarnings("default::DeprecationWarning"))
         yield item
@@ -268,9 +241,6 @@ def _run(coro):
     the whole mess. Kernels are launched with ``subprocess.Popen`` by
     jupyter_client, not via asyncio, so the selector loop's lack of subprocess
     support is not a problem here.
-
-    Done with an explicit loop rather than ``set_event_loop_policy``, which is
-    deprecated as of Python 3.14.
     """
     if sys.platform == "win32":
         loop = asyncio.SelectorEventLoop()
@@ -327,39 +297,30 @@ class MystNotebookItem(pytest.Item):
         if notebook.metadata.get("myst_test", {}).get("setup") is not False:
             setup = _setup_source(self.config)
 
-        failures = _run(_execute_cells(
-            client,
-            setup=setup,
-            keep_going=self.config.getoption("--notebook-keep-going"),
-        ))
+        _run(_execute_cells(client, setup=setup))
 
-        if failures:
-            pytest.fail(_format_failures(failures), pytrace=False)
+    def reportinfo(self):
+        return self.path, 0, f"myst notebook: {self.path.name}"
 
 
-async def _execute_cells(client, *, setup: str | None, keep_going: bool):
-    """Execute code cells one at a time, recording failures.
-
-    Going cell-by-cell (rather than ``async_execute``) is what makes
-    keep-going possible. ``async_execute_cell`` still honours cell tags such
-    as ``raises-exception`` and ``skip-execution``, so behaviour matches the
-    Sphinx build either way.
-    """
+async def _execute_cells(client, *, setup: str | None):
+    """Execute code cells one at a time, failing at the first error."""
     # need to be imported lazily
     import nbformat
     from nbclient.exceptions import CellExecutionError
 
-    failures = []
     client.reset_execution_trackers()
 
     async with client.async_setup_kernel():
         if setup:
             cell = nbformat.v4.new_code_cell(setup)
+            client.nb.cells.append(cell)
             try:
-                await client.async_execute_cell(cell, 0)
+                await client.async_execute_cell(cell, len(client.nb.cells) - 1)
             except CellExecutionError as exc:
-                # Nothing downstream can be trusted if the preamble failed.
-                raise RuntimeError(f"notebook setup failed:\n{exc}") from None
+                pytest.fail(f"notebook setup failed:\n{exc}", pytrace=False)
+            finally:
+                client.nb.cells.pop()
 
         number = 0
         for index, cell in enumerate(client.nb.cells):
@@ -370,30 +331,14 @@ async def _execute_cells(client, *, setup: str | None, keep_going: bool):
             try:
                 await client.async_execute_cell(cell, index)
             except CellExecutionError as exc:
-                failures.append((number, cell, exc))
-                if not keep_going:
-                    break
+                pytest.fail(
+                    f"code cell {number}: {_short_error(exc)}\n\n{exc}",
+                    pytrace=False,
+                )
 
-    return failures
 
-
-def _format_failures(failures) -> str:
-    # needs to be imported lazily
-    from nbclient.exceptions import CellExecutionError
-
-    parts = []
-    for number, cell, exc in failures:
-        first_line = cell.source.strip().splitlines()[0] if cell.source.strip() else ""
-        parts.append(f"--- code cell {number}: {first_line}\n{exc}")
-    header = (
-        f"{len(failures)} cells failed\n" if len(failures) > 1 else ""
-    )
-    return header + "\n".join(parts)
-
-    def repr_failure(self, excinfo):
-        if isinstance(excinfo.value, CellExecutionError):
-            return str(excinfo.value)
-        return super().repr_failure(excinfo)
-
-    def reportinfo(self):
-        return self.path, 0, f"myst notebook: {self.name}"
+def _short_error(exc) -> str:
+    """One-line summary for pytest's short summary: the error, not the cell."""
+    ename = getattr(exc, "ename", None) or type(exc).__name__
+    evalue = (getattr(exc, "evalue", "") or "").strip().splitlines()
+    return f"{ename}: {evalue[0]}" if evalue else ename
