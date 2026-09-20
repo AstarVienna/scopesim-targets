@@ -1,0 +1,61 @@
+name: Notebook Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: notebooks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MPLBACKEND: Agg  # headless matplotlib
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install poetry
+        shell: bash
+        run: pipx install poetry==2.4.3
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          poetry install --with test --with dev,notebooks --all-extras
+          poetry run pip install git+https://github.com/AstarVienna/ScopeSim_Data.git
+
+      # - name: Cache downloaded data
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.cache/pooch
+      #     key: pooch-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+      #     restore-keys: pooch-${{ runner.os }}-
+
+      - name: Execute MyST notebooks
+        run: poetry run pytest docs --notebooks --cov --cov-report=xml
+        # -v -n auto --dist loadgroup
+        # --cov=scopesim_targets --cov-report=xml:coverage-notebooks.xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          flags: notebooks
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
