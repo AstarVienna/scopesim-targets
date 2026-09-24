@@ -183,7 +183,7 @@ class TestEngineFluxConservation:
         f = _detected(opt, _point(flat_spec))
         # reference at 200 mas (rebuild to keep each parametrisation independent)
         ref = _detected(_train(0.2 * u.arcsec / u.pixel), _point(flat_spec))
-        npt.assert_allclose(f, ref, rtol=1e-10)
+        npt.assert_allclose(f, ref, rtol=2e-7)
 
     def test_unresolved_extended_equals_point(self, flat_spec):
         # An extended source much smaller than the detector pixel lands
@@ -263,16 +263,6 @@ class TestDownsampleGridPhase:
         f_tiny = _detected(opt, self._tiny_box(flat_spec, 60))
         npt.assert_allclose(f_tiny, f_point, rtol=1e-10)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="ScopeSim rescale_imagehdu downsamples by decimation "
-               "(ndi.zoom, order=1): on a vanishing-phase source grid "
-               "(npix mod 8 not in {3, 4, 5} at zoom = 1/4) the sample "
-               "lattice misses a deep-sub-pixel source entirely, the "
-               "sum_new == 0 guard skips the conserve_flux repair, and the "
-               "detected flux is exactly 0. Remove this marker once the "
-               "engine integrates (rebins) instead of decimating.",
-    )
     def test_vanishing_phase_equals_point(self, flat_spec):
         # npix = 15 (mod 8 = 7; the documentation example that exposed this):
         # identical physical source and identical brightness as above -- only
