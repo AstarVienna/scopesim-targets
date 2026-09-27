@@ -2,7 +2,6 @@
 """Currently only ``Star`` and baseclass."""
 
 from collections.abc import Sequence, Mapping
-from itertools import count
 
 from more_itertools import unzip
 from astropy import units as u
@@ -17,6 +16,7 @@ from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import Brightness, SpectrumTarget
+from .brightness import is_brightness_spec, FromSpectralType, LocatorError
 
 
 class PointSourceTarget(SpectrumTarget):
@@ -234,21 +234,11 @@ class Binary(PointSourceTarget):
         not care whether the amount was written as a number, a ``Quantity`` or
         a string, nor whether the locator is a band or a wavelength/frequency.
         """
-
-        def _is_spec(item) -> bool:
-            # A full spec is a mapping or a (non-string) sequence; a bare
-            # locator/amount is a str, a scalar Quantity or a number -- none of
-            # which is a mapping or a non-string sequence.
-            return isinstance(item, Mapping) or (
-                isinstance(item, Sequence)
-                and not isinstance(item, (str, bytes))
-            )
-
         return (
             isinstance(brightness, Sequence)
             and not isinstance(brightness, (str, bytes))
             and len(brightness) == 2
-            and all(_is_spec(element) for element in brightness)
+            and all(is_brightness_spec(element) for element in brightness)
         )
 
     @property
@@ -604,13 +594,36 @@ class StarField(PointSourceTarget):
                 "Brightnesses length doesn't match other attributes"
             ) from err
         self._brightnesses = [
-            (
-                self._parse_brightness(brightness)
-                if isinstance(brightness, Sequence) and len(brightness) > 1
-                else self._parse_brightness((self.band, brightness))
-            )
+            self._parse_field_brightness(brightness)
             for brightness in brightnesses
         ]
+
+    def _parse_field_brightness(self, brightness) -> Brightness:
+        """Parse one per-star entry: a full spec, or a bare amount + `band`.
+
+        Full specs (mapping or ``(locator, amount)`` sequence) are parsed as
+        given; anything else -- a number, a scalar Quantity, an amount string
+        like ``"15 mag"`` -- is a bare amount located at the field's `band`.
+        The split is structural (:func:`~.brightness.is_brightness_spec`), so
+        string amounts and mappings are no longer misrouted.
+        """
+        if not is_brightness_spec(brightness):
+            if self.band is None:
+                raise LocatorError(
+                    f"bare brightness amount {brightness!r} needs a locator: "
+                    "set StarField's `band`, or give a full "
+                    "(locator, amount) / mapping spec"
+                )
+            brightness = (self.band, brightness)
+
+        parsed = self._parse_brightness(brightness)
+        if isinstance(parsed, FromSpectralType):
+            # The resolver lives on the single-target `brightness` property;
+            # per-star resolution (and per-star distances) is not wired up.
+            raise TypeError(
+                "from_spectral_type is not supported for StarField entries"
+            )
+        return parsed
 
     def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
@@ -624,7 +637,12 @@ class StarField(PointSourceTarget):
 
         x_positions, y_positions = unzip(xy_positions)
 
-        spectra_ids = dict(zip(set(self.spectra), count()))
+        # First-seen order (not set order, which follows per-process string
+        # hash randomization), so refs are reproducible across runs.
+        spectra_ids = {
+            spectrum: spectrum_id
+            for spectrum_id, spectrum in enumerate(dict.fromkeys(self.spectra))
+        }
         resolved_spectra = {
             # TODO: Implement redshift from position.
             spectrum_id: self.resolve_spectrum(spectrum)
@@ -632,10 +650,17 @@ class StarField(PointSourceTarget):
         }
 
         spec_refs = [spectra_ids[spectrum] for spectrum in self.spectra]
-        weights = [
-            self._anchored_spectrum_scale(resolved_spectra[spectrum_id], brightness)
-            for spectrum_id, brightness in zip(spec_refs, self.brightnesses)
-        ]
+
+        # One batched scale per unique spectrum: the photometry then runs once
+        # per (spectrum, band, amount kind) rather than once per star.
+        weights = [None] * len(spec_refs)
+        for spectrum_id, spectrum in resolved_spectra.items():
+            indices = [i for i, ref in enumerate(spec_refs) if ref == spectrum_id]
+            scales = self._anchored_spectrum_scales(
+                spectrum, [self.brightnesses[i] for i in indices]
+            )
+            for i, scale in zip(indices, scales):
+                weights[i] = scale
 
         # TODO: Refactor...
         table = Table(

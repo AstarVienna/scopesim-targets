@@ -7,8 +7,13 @@ import pytest
 import yaml
 import numpy as np
 from astropy import units as u
+from synphot import SpectralElement
+from synphot.models import Box1D
+from spextra import Spextrum
 
-from scopesim_targets.brightness import parse_brightness
+from scopesim_targets import target as target_module
+
+from scopesim_targets.brightness import parse_brightness, BrightnessError
 from scopesim_targets.point_source import (
     PointSourceTarget,
     Star,
@@ -278,3 +283,137 @@ class TestStarField:
             tgt.spectra = ["A0V", "G2V"]
         with pytest.raises(ValueError):
             tgt.brightnesses = [5 * u.mag, 6 * u.mag]
+
+
+@pytest.fixture
+def offline_field(monkeypatch):
+    """Make StarField.to_source run offline against real synphot.
+
+    Library spectra are replaced by flat stand-ins (distinct amplitudes, so
+    refs are distinguishable), and the network-backed passband lookup by a
+    synthetic V-ish boxcar. Returns the name -> stand-in spectrum mapping.
+    """
+    flat = Spextrum.flat_spectrum(
+        5 * u.ABmag, waves=np.linspace(3000, 25000, 600) * u.AA
+    )
+    stand_ins = {"A0V": flat, "G2V": flat * 2, "M2V": flat * 5}
+    monkeypatch.setattr(
+        StarField,
+        "resolve_spectrum",
+        staticmethod(lambda spectrum, brightness=None: stand_ins[str(spectrum)]),
+    )
+    box = SpectralElement(Box1D, amplitude=1, x_0=5500 * u.AA, width=1000 * u.AA)
+    monkeypatch.setattr(target_module, "_passband", lambda band: box)
+    return stand_ins
+
+
+class TestStarFieldBrightnesses:
+    """Per-star brightness entries: full specs, or bare amounts + `band`."""
+
+    @pytest.mark.parametrize(
+        ("entry", "expected"),
+        (
+            (15, ("V", 15)),  # bare number
+            (np.float64(15), ("V", 15)),  # from iterating a numpy array
+            (15 * u.mag, ("V", 15)),  # bare Quantity
+            ("15 mag", ("V", "15 mag")),  # bare string (was TypeError)
+            ("15 mag(AB)", ("V", "15 mag(AB)")),
+            ("3.5 mJy", ("V", "3.5 mJy")),
+            (("R", "15 mag"), ("R", "15 mag")),  # full spec overrides band
+            ({"band": "K", "value": 12}, ("K", 12)),  # mapping (was misrouted)
+            (("230 GHz", "5 mJy"), ("230 GHz", "5 mJy")),
+        ),
+    )
+    def test_entry_forms(self, entry, expected):
+        tgt = StarField(
+            positions=[(0, 0)], spectra=["A0V"], brightnesses=[entry], band="V"
+        )
+        assert tgt.brightnesses == [parse_brightness(expected)]
+
+    def test_numpy_array_of_mags(self):
+        tgt = StarField(
+            positions=[(0, 0), (1, 0), (2, 0)],
+            spectra=["A0V"] * 3,
+            brightnesses=np.linspace(10, 12, 3),
+            band="V",
+        )
+        assert tgt.brightnesses == [
+            parse_brightness(("V", m)) for m in (10, 11, 12)
+        ]
+
+    def test_bare_amount_without_band_raises_E2(self):
+        with pytest.raises(BrightnessError, match="needs a locator") as exc:
+            StarField(positions=[(0, 0)], spectra=["A0V"], brightnesses=[15])
+        assert exc.value.code == "E2"
+
+    def test_full_specs_need_no_band(self):
+        tgt = StarField(
+            positions=[(0, 0)], spectra=["A0V"], brightnesses=[("R", 15)]
+        )
+        assert tgt.brightnesses == [parse_brightness(("R", 15))]
+
+    def test_from_spectral_type_rejected(self):
+        with pytest.raises(TypeError, match="from_spectral_type"):
+            StarField(
+                positions=[(0, 0)],
+                spectra=["A0V"],
+                brightnesses=[{"from_spectral_type": "mamajek"}],
+            )
+
+
+class TestStarFieldToSource:
+    def test_refs_in_first_seen_order(self, offline_field):
+        src = StarField(
+            positions=[(0, 0), (1, 0), (2, 0), (3, 0)],
+            spectra=["G2V", "A0V", "G2V", "M2V"],
+            brightnesses=["15 mag(AB)"] * 4,
+            band="V",
+        ).to_source()
+        field = src.fields[0]
+        np.testing.assert_array_equal(field.field["ref"], [0, 1, 0, 2])
+        assert field.spectra[0] is offline_field["G2V"]
+        assert field.spectra[1] is offline_field["A0V"]
+        assert field.spectra[2] is offline_field["M2V"]
+
+    def test_batched_weights_match_per_star(self, offline_field):
+        # Mixed groups: two spectra x (AB mag, ST mag, band flux density,
+        # monochromatic flux density), several values each.
+        spectra = ["A0V", "G2V"] * 6
+        brightnesses = [
+            "14 mag(AB)", "15 mag(AB)", "16.5 mag(AB)",
+            "15 mag(ST)", "12 mag(ST)",
+            "3 mJy", "0.5 Jy",
+            ("656.3 nm", "5 mJy"), ("656.3 nm", "80 mJy"),
+            ("R", "13 mag(AB)"), ("R", "18 mag(AB)"), "13 mag(AB)",
+        ]
+        tgt = StarField(
+            positions=[(i, 0) for i in range(len(spectra))],
+            spectra=spectra,
+            brightnesses=brightnesses,
+            band="V",
+        )
+        weights = tgt.to_source().fields[0].field["weight"]
+        expected = [
+            tgt._anchored_spectrum_scale(offline_field[str(spec)], bright)
+            for spec, bright in zip(tgt.spectra, tgt.brightnesses)
+        ]
+        np.testing.assert_allclose(weights, expected, rtol=1e-10)
+
+    def test_photometry_once_per_group(self, offline_field, monkeypatch):
+        calls = []
+
+        def spy(spectrum, brightness):
+            calls.append(brightness)
+            return 1.0
+
+        monkeypatch.setattr(StarField, "_get_spectrum_scale", staticmethod(spy))
+        n_stars = 50
+        StarField(
+            positions=[(i, 0) for i in range(n_stars)],
+            spectra=["A0V", "G2V"] * (n_stars // 2),
+            brightnesses=np.linspace(10, 20, n_stars),
+            band="V",
+        ).to_source()
+        # Vega mags would need the (network) Vega reference, so the spy stubs
+        # the photometry: two spectra x one (band, system) group -> 2 calls.
+        assert len(calls) == 2

@@ -25,7 +25,7 @@ from .brightness import (
     AmountError,
 )
 
-__all__ = ["synphot_flux_scale"]
+__all__ = ["synphot_flux_scale", "scale_group_key", "amount_ratio"]
 
 
 _SYSTEM_UNIT = {
@@ -98,3 +98,52 @@ def synphot_flux_scale(spectrum, brightness, *, band=None, vegaspec=None):
     wavelength = brightness.locator.to(u.AA, u.spectral())
     actual = spectrum(wavelength, flux_unit=brightness.value.unit)
     return float((brightness.value / actual).to_value(u.dimensionless_unscaled))
+
+
+def scale_group_key(brightness) -> tuple:
+    """Hashable key under which brightnesses share one synthetic photometry.
+
+    Two brightnesses with the same key differ *only* in their amount value, so
+    on the same spectrum their scale factors differ by the closed-form
+    :func:`amount_ratio` -- the photometry (bandpass, Vega reference,
+    ``Observation``) needs to run once per key, not once per star.
+
+    The key is everything :func:`synphot_flux_scale` dispatches on except the
+    value: locator kind + locator, amount kind, photometric system (magnitudes
+    only) and solid angle. The amount *unit* is deliberately not part of it --
+    ``mJy`` and ``Jy`` are the same kind and :func:`amount_ratio` converts.
+    """
+    locator = brightness.locator
+    if isinstance(locator, u.Quantity):
+        # Quantity is unhashable; (value, unit) is an exact stand-in. Equal
+        # locators spelled in different units (656.3 nm vs 6563 AA) just end up
+        # in separate groups -- a missed optimization, never a wrong result.
+        locator = (float(locator.value), locator.unit)
+    is_mag = brightness.amount_kind is AmountKind.MAG
+    return (
+        brightness.locator_kind,
+        locator,
+        brightness.amount_kind,
+        brightness.system if is_mag else None,
+        brightness.solid_angle,
+    )
+
+
+def amount_ratio(brightness, reference) -> float:
+    """Scale-factor ratio ``scale(brightness) / scale(reference)``.
+
+    Exact for any spectrum, because :func:`synphot_flux_scale` is
+    ``10**(-0.4 * (m - m_actual))`` for magnitudes and ``value / actual`` for
+    every linear amount, with ``m_actual`` / ``actual`` depending only on the
+    group key. Both brightnesses must share a :func:`scale_group_key`.
+    """
+    if scale_group_key(brightness) != scale_group_key(reference):
+        raise ValueError(
+            "amount_ratio needs brightnesses with the same scale_group_key"
+        )
+    if brightness.amount_kind is AmountKind.MAG:
+        delta = (brightness.value - reference.value).to_value(u.mag)
+        return float(10 ** (-0.4 * delta))
+    return float(
+        (brightness.value / reference.value).to_value(u.dimensionless_unscaled)
+    )

@@ -49,6 +49,7 @@ __all__ = [
     "FromSpectralType",
     "BrightnessError",
     "parse_brightness",
+    "is_brightness_spec",
     "solid_angle_unit",
 ]
 
@@ -356,6 +357,24 @@ def _parse_locator(locator: object) -> tuple[LocatorKind, str | u.Quantity]:
         )
     raise LocatorError(
         f"unsupported locator type {type(locator).__name__}"
+    )
+
+
+def is_brightness_spec(obj: object) -> bool:
+    """Is `obj` a complete brightness spec rather than a bare amount?
+
+    A *complete* spec is a mapping (canonical form or resolver) or a
+    ``(locator, amount)`` sequence. A *bare* amount -- a number, a scalar
+    :class:`~astropy.units.Quantity` or a string such as ``"15 mag"`` -- is
+    none of those. The test is purely structural (it does not parse), so it is
+    independent of how the amount was written and of the locator kind.
+
+    Used wherever a slot accepts either a full spec or something else: a
+    binary's primary/secondary pair, and a star field's per-star entries
+    (where bare amounts are combined with the field's default band).
+    """
+    return isinstance(obj, Mapping) or (
+        isinstance(obj, Sequence) and not isinstance(obj, (str, bytes))
     )
 
 

@@ -3,7 +3,7 @@
 
 from abc import ABCMeta, abstractmethod
 from functools import lru_cache
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle, Distance
@@ -15,7 +15,7 @@ from spextra import Spextrum, SpecLibrary, FilterSystem, Passband
 from scopesim import Source
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
-from .flux_scaling import synphot_flux_scale
+from .flux_scaling import synphot_flux_scale, scale_group_key, amount_ratio
 from .brightness import (
     parse_brightness,
     Brightness,
@@ -52,6 +52,18 @@ def _vega_reference() -> SourceSpectrum:
 # For now, limit possible bands to ETC filters in SpeXtra
 FILTER_SYSTEM = FilterSystem("etc")
 DEFAULT_LIBRARY = SpecLibrary("bosz/lr")
+
+
+@lru_cache(maxsize=None)
+def _passband(band: str) -> Passband:
+    """The :data:`FILTER_SYSTEM` passband for `band`, built once and cached.
+
+    Constructing a ``Passband`` reads (and on first use downloads) its
+    transmission curve; every target used to redo that per flux scale. The
+    vocabulary is small and fixed, so an unbounded cache is fine. Callers only
+    read the passband (``Observation`` does not mutate it).
+    """
+    return Passband(f"{FILTER_SYSTEM.name}/{band}")
 
 
 class Target(metaclass=ABCMeta):
@@ -506,7 +518,7 @@ class SpectrumTarget(Target):
 
         band = None
         if brightness.locator_kind is LocatorKind.BAND:
-            band = Passband(f"{FILTER_SYSTEM.name}/{brightness.locator}")
+            band = _passband(brightness.locator)
 
         vegaspec = None
         if (
@@ -584,6 +596,33 @@ class SpectrumTarget(Target):
             )
             scale *= distance_factor
         return scale
+
+    def _anchored_spectrum_scales(
+        self,
+        spectrum: SourceSpectrum,
+        brightnesses: Sequence[Brightness],
+    ) -> list[float]:
+        """Batched :meth:`_anchored_spectrum_scale` for many amounts, one SED.
+
+        Brightnesses are grouped by :func:`~.flux_scaling.scale_group_key`;
+        the full (synphot) scale is computed once per group, on the group's
+        first member, and every other member is derived from it by the exact
+        :func:`~.flux_scaling.amount_ratio`. The anchor-frame factor (distance
+        modulus) is target-wide, so it cancels in the ratio and is carried by
+        the reference scale. Returns the scales in input order.
+        """
+        references: dict[tuple, tuple[Brightness, float]] = {}
+        scales = []
+        for brightness in brightnesses:
+            key = scale_group_key(brightness)
+            if key not in references:
+                references[key] = (
+                    brightness,
+                    self._anchored_spectrum_scale(spectrum, brightness),
+                )
+            reference, reference_scale = references[key]
+            scales.append(reference_scale * amount_ratio(brightness, reference))
+        return scales
 
 
 # TODO: docstring
