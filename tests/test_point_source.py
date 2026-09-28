@@ -7,6 +7,7 @@ import pytest
 import yaml
 import numpy as np
 from astropy import units as u
+from astropy.coordinates import SkyCoord
 from synphot import SpectralElement
 from synphot.models import Box1D
 from spextra import Spextrum
@@ -417,3 +418,155 @@ class TestStarFieldToSource:
         # Vega mags would need the (network) Vega reference, so the spy stubs
         # the photometry: two spectra x one (band, system) group -> 2 calls.
         assert len(calls) == 2
+
+
+class TestStarFieldPositions:
+    """Vectorized per-star offsets from the field center."""
+
+    EXPECTED = [[0, 0], [0, 1], [60, 0]]  # arcsec
+
+    @pytest.mark.parametrize(
+        "positions",
+        (
+            [(0, 0), (0, 1), (60, 0)],  # plain numbers [arcsec]
+            np.array([(0, 0), (0, 1), (60, 0)]),
+            np.array([(0, 0), (0, 1), (60, 0)]) * u.arcsec,
+            np.array([(0, 0), (0, 1 / 60), (1, 0)]) * u.arcmin,
+            [  # rows of angular Quantities: units converted, never stripped
+                u.Quantity([0, 0], u.arcsec),
+                u.Quantity([0, 1 / 60], u.arcmin),
+                u.Quantity([1, 0], u.arcmin),
+            ],
+            [(0 * u.arcsec, 0 * u.deg), (0, 1), (1 * u.arcmin, 0)],  # mixed
+            [{"x": 0, "y": 0}, {"x": 0, "y": 1}, {"x": 60, "y": 0}],
+        ),
+    )
+    def test_input_forms(self, positions):
+        tgt = StarField(positions=positions)
+        assert tgt.offsets.shape == (3, 2)
+        np.testing.assert_allclose(
+            tgt.offsets.to_value(u.arcsec), self.EXPECTED, atol=1e-12
+        )
+
+    @pytest.mark.parametrize(
+        ("positions", "exc"),
+        (
+            ([(1 * u.AU, 0 * u.AU)], u.UnitConversionError),
+            ([(1, 2, 3)], ValueError),
+            ([{"x": 1, "y": 2, "distance": 3 * u.pc}], ValueError),
+            ("bogus", TypeError),
+            ([], ValueError),
+        ),
+    )
+    def test_invalid_forms(self, positions, exc):
+        with pytest.raises(exc):
+            StarField(positions=positions)
+
+    def test_empty_field_constructs(self):
+        tgt = StarField()
+        assert tgt.offsets is None
+        assert tgt.positions is None
+        assert tgt.spectra is None
+
+    def test_absolute_positions_around_default_center(self):
+        tgt = StarField(positions=[(3, 4)])
+        center = SkyCoord(0 * u.deg, 0 * u.deg)
+        np.testing.assert_allclose(center.separation(tgt.positions).arcsec, 5)
+
+    def test_absolute_positions_around_field_center(self):
+        center = SkyCoord(150.1 * u.deg, 2.2 * u.deg)
+        tgt = StarField(position=center, positions=[(0, 0), (0, 10), (3, 4)])
+        positions = tgt.positions
+        np.testing.assert_allclose(
+            center.separation(positions).arcsec, [0, 10, 5], atol=1e-9
+        )
+        # +y is North, +x East
+        np.testing.assert_allclose(
+            center.position_angle(positions[1:]).deg,
+            [0, np.degrees(np.arctan2(3, 4))],
+            atol=1e-6,
+        )
+
+    def test_skycoord_input_round_trips(self):
+        center = SkyCoord(150.1 * u.deg, 2.2 * u.deg)
+        stars = SkyCoord([150.1, 150.101, 150.0995] * u.deg, [2.2, 2.2, 2.201] * u.deg)
+        tgt = StarField(position=center, positions=stars)
+        np.testing.assert_allclose(
+            tgt.positions.separation(stars).to_value(u.arcsec), 0, atol=1e-9
+        )
+        # list of scalar SkyCoords is equivalent
+        again = StarField(position=center, positions=list(stars))
+        np.testing.assert_allclose(again.offsets, tgt.offsets)
+
+    def test_moving_center_moves_field_rigidly(self):
+        tgt = StarField(positions=[(0, 0), (0, 10)])
+        tgt.position = SkyCoord(150.1 * u.deg, 2.2 * u.deg)
+        np.testing.assert_allclose(tgt.offsets.to_value(u.arcsec), [[0, 0], [0, 10]])
+        np.testing.assert_allclose(
+            tgt.positions[0].separation(tgt.positions[1]).arcsec, 10
+        )
+
+    def test_center_must_be_scalar(self):
+        with pytest.raises(ValueError, match="single field center"):
+            StarField(position=[(0, 0), (1, 1)])
+
+    def test_center_distance_is_field_distance(self):
+        tgt = StarField(position={"distance": 50 * u.pc}, positions=[(0, 0)])
+        assert tgt._distance_or_none() == 50 * u.pc
+
+
+class TestStarFieldSharedSpectrum:
+    def test_single_spectrum_broadcasts(self):
+        tgt = StarField(
+            positions=[(0, 0), (1, 0), (2, 0)], spectra="A0V",
+            brightnesses=[10, 11, 12], band="V",
+        )
+        assert len(tgt.spectra) == 3
+        assert len(set(tgt.spectra)) == 1
+        assert tgt.spectra[0] == "a0v"
+
+    def test_positions_can_change_length_with_shared_spectrum(self):
+        tgt = StarField(positions=[(0, 0)], spectra="A0V")
+        tgt.positions = [(0, 0), (1, 0), (2, 0)]
+        assert len(tgt.spectra) == 3
+
+    def test_brightnesses_still_length_checked(self):
+        tgt = StarField(positions=[(0, 0), (1, 0)], spectra="A0V")
+        with pytest.raises(ValueError, match="Brightnesses length"):
+            tgt.brightnesses = [10, 11, 12]
+
+    def test_switch_between_shared_and_per_star(self):
+        tgt = StarField(positions=[(0, 0), (1, 0)], spectra="A0V")
+        tgt.spectra = ["A0V", "G2V"]
+        assert tgt.spectra == ["a0v", "g2v"]
+        with pytest.raises(ValueError, match="Spectra length"):
+            tgt.spectra = ["A0V"]
+        tgt.spectra = "G2V"
+        assert tgt.spectra == ["g2v", "g2v"]
+
+    def test_to_source_single_spectrum(self, offline_field):
+        src = StarField(
+            positions=[(0, 0), (1, 0), (2, 0)], spectra="G2V",
+            brightnesses=["15 mag(AB)"] * 3, band="V",
+        ).to_source()
+        field = src.fields[0]
+        np.testing.assert_array_equal(field.field["ref"], [0, 0, 0])
+        assert list(field.spectra) == [0]
+        assert field.spectra[0] is offline_field["G2V"]
+
+
+class TestStarFieldTable:
+    def test_xy_are_offsets_independent_of_center(self, offline_field):
+        positions = [(0, 0), (-12.5, 3), (7, -0.25)]
+        src = StarField(
+            position=SkyCoord(150.1 * u.deg, 2.2 * u.deg),
+            positions=positions, spectra="A0V",
+            brightnesses=["15 mag(AB)"] * 3, band="V",
+        ).to_source()
+        np.testing.assert_array_equal(
+            src.fields[0].field["x"], [p[0] for p in positions]
+        )
+        np.testing.assert_array_equal(
+            src.fields[0].field["y"], [p[1] for p in positions]
+        )
+        assert src.fields[0].field["x"].unit == u.arcsec

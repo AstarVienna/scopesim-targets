@@ -3,12 +3,13 @@
 
 from collections.abc import Sequence, Mapping
 
-from more_itertools import unzip
+import numpy as np
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from synphot import SourceSpectrum
 
+from astar_utils import SpectralType
 from astar_utils.guard_functions import guard_same_len
 from spextra import Spextrum
 from scopesim import Source
@@ -508,18 +509,39 @@ class PlanetarySystem(PointSourceTarget):
 
 # TODO: Common base class for multi-component targets
 class StarField(PointSourceTarget):
-    """Multiple Stars.
+    """Multiple stars around a common field center.
 
-    .. todo:: Add support for defining a common (field center) position to which
-        the individual positions are interpreted als relative to.
+    Per-star ``positions`` are offsets from the field center ``position``
+    (default: (0, 0)), in arcsec, with +x = East and +y = North -- the same
+    convention as a component ``offset`` relative to its parent. They are
+    stored vectorized, as one ``(N, 2)`` offset array (:attr:`offsets`), so
+    fields of many thousands of stars stay cheap. Moving the field center moves
+    the whole field rigidly.
+
+    ``spectra`` is either one spectrum per star, or a single spectrum shared by
+    all stars.
+
+    .. todo:: Default ``role`` to ``"background"`` (fore-/background fields are
+        the typical use), once ``role`` is implemented on targets and in the
+        engine; see the schema ``role`` definition.
 
     Examples
     --------
     >>> tgt = StarField(
-    ...     positions=[(0, 0), (1, 1)],  # [arcsec] offset from center
+    ...     positions=[(0, 0), (1, 1)],  # [arcsec] offset from field center
     ...     spectra=["A0V", "G2V"],
     ...     brightnesses=[10, 15],  # [mag]
-    ...     band="V",  # default for brightnesses
+    ...     band="V",  # default for bare brightness amounts
+    ... )
+
+    A single spectrum for all stars, around an explicit field center:
+
+    >>> tgt = StarField(
+    ...     position=SkyCoord(150.1 * u.deg, 2.2 * u.deg),
+    ...     positions=np.array([(-5, 0), (0, 0), (5, 0)]),
+    ...     spectra="A0V",
+    ...     brightnesses=["15 mag(AB)", "16 mag(AB)", "17 mag(AB)"],
+    ...     band="V",
     ... )
 
     For more examples, see also
@@ -529,54 +551,189 @@ class StarField(PointSourceTarget):
 
     def __init__(
         self,
-        positions: Sequence[POSITION_TYPE] | None = None,
-        spectra: Sequence[SPECTRUM_TYPE] | None = None,
+        positions: Sequence | np.ndarray | u.Quantity | SkyCoord | None = None,
+        spectra: SPECTRUM_TYPE | Sequence[SPECTRUM_TYPE] | None = None,
         brightnesses: Sequence[BRIGHTNESS_TYPE] | None = None,
         band: str | None = None,  # TODO: Proper typing
+        position: POSITION_TYPE | None = None,
     ) -> None:
-        guard_same_len(positions, spectra, brightnesses)
+        # Length consistency is checked by each setter against the attributes
+        # already set, so no up-front guard (which could not know about a
+        # broadcast spectrum) is needed.
         self.band = band
-        self.positions = positions
-        self.spectra = spectra
-        self.brightnesses = brightnesses
+        # Center first: absolute per-star positions are converted to offsets
+        # from it on assignment.
+        if position is not None:
+            self.position = position
+        if positions is not None:
+            self.positions = positions
+        if spectra is not None:
+            self.spectra = spectra
+        if brightnesses is not None:
+            self.brightnesses = brightnesses
 
     @property
-    def positions(self):
-        try:
-            return self._positions
-        except AttributeError:
-            pass  # return None
+    def position(self) -> SkyCoord:
+        """Field center; per-star ``positions`` are offsets from it."""
+        return self._position
+
+    @position.setter
+    def position(self, position: POSITION_TYPE):
+        center = self._parse_position(position)
+        if not center.isscalar:
+            raise ValueError(
+                "StarField `position` is the single field center; per-star "
+                "positions go in `positions`"
+            )
+        self._position = center
+
+    @property
+    def offsets(self) -> u.Quantity | None:
+        """Per-star offsets from the field center, shape ``(N, 2)`` [arcsec].
+
+        Column 0 is x (+East), column 1 is y (+North).
+        """
+        return getattr(self, "_offsets", None)
+
+    @property
+    def positions(self) -> SkyCoord | None:
+        """Absolute per-star positions (array-valued SkyCoord).
+
+        Resolved from :attr:`offsets` against the field center (see
+        :meth:`~.target.Target.resolve_position`, default (0, 0)).
+        """
+        offsets = self.offsets
+        if offsets is None:
+            return None
+        center = self.resolve_position()
+        local = SkyCoord(
+            lon=offsets[:, 0], lat=offsets[:, 1], frame=center.skyoffset_frame()
+        )
+        return local.transform_to(center.frame.replicate_without_data())
 
     @positions.setter
-    def positions(self, positions: Sequence[POSITION_TYPE]):
+    def positions(self, positions):
+        offsets = self._parse_offsets(positions)
         try:
-            guard_same_len(positions, self.spectra, self.brightnesses)
+            guard_same_len(offsets, self._per_star_spectra, self.brightnesses)
         except ValueError as err:
             raise ValueError(
                 "Positions length doesn't match other attributes"
             ) from err
-        self._positions = [
-            self._parse_position(position) for position in positions
-        ]
+        self._offsets = offsets
+
+    def _parse_offsets(self, positions) -> u.Quantity:
+        """Normalize per-star positions into an ``(N, 2)`` arcsec offset array.
+
+        Accepted, fastest first:
+
+        * an ``(N, 2)`` array or nested sequence of plain numbers [arcsec];
+        * an ``(N, 2)`` angular Quantity, or a sequence of angular Quantity
+          ``(x, y)`` rows;
+        * a sequence of ``(x, y)`` pairs or ``{"x": ..., "y": ...}`` mappings,
+          each coordinate a number [arcsec] or an angular Quantity;
+        * absolute positions as a (array-valued) SkyCoord or a sequence of
+          scalar SkyCoords -- converted to offsets from the *current* field
+          center, so set ``position`` first.
+        """
+        if isinstance(positions, (str, bytes)):
+            raise TypeError(f"Unknown positions format {positions!r}")
+        if isinstance(positions, SkyCoord) or (
+            isinstance(positions, Sequence)
+            and len(positions) > 0
+            and all(isinstance(pos, SkyCoord) for pos in positions)
+        ):
+            coords = (
+                positions if isinstance(positions, SkyCoord)
+                else SkyCoord(list(positions))
+            )
+            if coords.isscalar:
+                coords = coords.reshape((1,))
+            local = coords.transform_to(self.resolve_position().skyoffset_frame())
+            # Plain values: Longitude and Latitude refuse to stack together.
+            # (Offset-frame lon wraps at 180 deg, so West offsets are negative.)
+            offsets = np.column_stack(
+                [local.lon.to_value(u.arcsec), local.lat.to_value(u.arcsec)]
+            ) << u.arcsec
+        else:
+            try:
+                # Fast path: numbers, arrays, angular Quantities (or rows of
+                # them) -- converted, never unit-stripped. Pairs mixing numbers
+                # and Quantities, and mappings, raise and fall through.
+                offsets = u.Quantity(positions, u.arcsec)
+            except (TypeError, ValueError):
+                # (unit errors re-raise from the per-pair parse)
+                offsets = u.Quantity(
+                    [self._parse_offset_pair(pos) for pos in positions]
+                )
+
+        if offsets.ndim != 2 or offsets.shape[1] != 2:
+            raise ValueError(
+                f"positions must be N (x, y) pairs, got shape {offsets.shape}"
+            )
+        return offsets
+
+    @staticmethod
+    def _parse_offset_pair(position) -> u.Quantity:
+        match position:
+            case Mapping() if set(position) == {"x", "y"}:
+                x_offset, y_offset = position["x"], position["y"]
+            case Mapping():
+                # Per-star distances (or anything else) have no meaning here;
+                # a field-wide distance belongs on the field center.
+                raise ValueError(
+                    "per-star position mappings take only 'x' and 'y', got "
+                    f"{sorted(position)}; put a distance on the field center "
+                    "`position`"
+                )
+            case u.Quantity() if position.shape == (2,):
+                x_offset, y_offset = position
+            case (x_offset, y_offset):
+                pass
+            case _:
+                raise TypeError(f"Unknown per-star position {position!r}")
+        return u.Quantity(
+            [u.Quantity(x_offset, u.arcsec), u.Quantity(y_offset, u.arcsec)]
+        )
 
     @property
-    def spectra(self):
-        try:
-            return self._spectra
-        except AttributeError:
-            pass  # return None
+    def spectra(self) -> list | None:
+        """Per-star spectra; a shared spectrum is repeated for every star."""
+        common = getattr(self, "_common_spectrum", None)
+        if common is not None:
+            return [common] * (self._n_stars() or 1)
+        return getattr(self, "_spectra", None)
 
     @spectra.setter
-    def spectra(self, spectra: Sequence[SPECTRUM_TYPE]):
+    def spectra(self, spectra: SPECTRUM_TYPE | Sequence[SPECTRUM_TYPE]):
+        if isinstance(spectra, (str, SpectralType, SourceSpectrum)):
+            # One spectrum for all stars: no length to match.
+            self._common_spectrum = self._parse_spectrum(spectra)
+            self._spectra = None
+            return
+
         try:
-            guard_same_len(self.positions, spectra, self.brightnesses)
+            guard_same_len(self.offsets, spectra, self.brightnesses)
         except ValueError as err:
             raise ValueError(
                 "Spectra length doesn't match other attributes"
             ) from err
+        self._common_spectrum = None
         self._spectra = [
             self._parse_spectrum(spectrum) for spectrum in spectra
         ]
+
+    @property
+    def _per_star_spectra(self) -> list | None:
+        """Explicit per-star spectra for length guards (None if shared)."""
+        return getattr(self, "_spectra", None)
+
+    def _n_stars(self) -> int | None:
+        """Number of stars, from whichever per-star attribute is set."""
+        for per_star in (self.offsets, self._per_star_spectra, self.brightnesses):
+            if per_star is not None:
+                return len(per_star)
+        return None
 
     @property
     def brightnesses(self):
@@ -588,7 +745,7 @@ class StarField(PointSourceTarget):
     @brightnesses.setter
     def brightnesses(self, brightnesses: Sequence[BRIGHTNESS_TYPE]):
         try:
-            guard_same_len(self.positions, self.spectra, brightnesses)
+            guard_same_len(self.offsets, self._per_star_spectra, brightnesses)
         except ValueError as err:
             raise ValueError(
                 "Brightnesses length doesn't match other attributes"
@@ -627,15 +784,11 @@ class StarField(PointSourceTarget):
 
     def to_source(self, optical_train=None) -> Source:
         """Convert to ScopeSim Source object."""
-        local_frame = SkyCoord(0 * u.deg, 0 * u.deg).skyoffset_frame()
-
-        xy_positions = []
-        for position in self.positions:
-            xy_positions.append(
-                self._xy_arcsec_position(position, local_frame)
-            )
-
-        x_positions, y_positions = unzip(xy_positions)
+        # Offsets are already coordinates in the field center's offset frame,
+        # which is exactly ScopeSim's local frame: no transform needed.
+        # .round(6) is microarcsec, as in `_xy_arcsec_position`.
+        x_positions = self.offsets[:, 0].to_value(u.arcsec).round(6)
+        y_positions = self.offsets[:, 1].to_value(u.arcsec).round(6)
 
         # First-seen order (not set order, which follows per-process string
         # hash randomization), so refs are reproducible across runs.
@@ -667,8 +820,8 @@ class StarField(PointSourceTarget):
             names=["x", "y", "ref", "weight"],
             units={"x": u.arcsec, "y": u.arcsec},
             data={
-                "x": list(x_positions),
-                "y": list(y_positions),
+                "x": x_positions,
+                "y": y_positions,
                 "ref": spec_refs,
                 "weight": weights,
             },
