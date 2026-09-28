@@ -35,6 +35,7 @@ from enum import Enum, auto
 from numbers import Number
 from collections.abc import Mapping, Sequence
 
+import numpy as np
 import astropy.units as u
 from synphot.units import VEGAMAG
 
@@ -50,6 +51,7 @@ __all__ = [
     "BrightnessError",
     "parse_brightness",
     "is_brightness_spec",
+    "is_single_brightness",
     "solid_angle_unit",
 ]
 
@@ -376,6 +378,33 @@ def is_brightness_spec(obj: object) -> bool:
     return isinstance(obj, Mapping) or (
         isinstance(obj, Sequence) and not isinstance(obj, (str, bytes))
     )
+
+
+def is_single_brightness(obj: object) -> bool:
+    """Is `obj` one brightness, as opposed to a sequence of per-item entries?
+
+    One brightness is a mapping, a bare scalar amount (number, scalar Quantity,
+    amount string), or a ``(locator, amount)`` pair. Anything else array-like
+    -- a list of entries, a numpy or Quantity array -- is per-item.
+
+    The pair case is the ambiguous one: ``("V", 15)`` and ``[15, 16]`` are
+    both length-2 sequences. They are told apart by whether the first item is
+    a valid locator, which is unambiguous because the grammar keeps locators
+    and amounts disjoint: no number, magnitude string or flux string parses as
+    a band, wavelength or frequency.
+    """
+    if isinstance(obj, Mapping):
+        return True
+    if not is_brightness_spec(obj):
+        # str, number, scalar Quantity -> 0-d; arrays are per-item.
+        return np.ndim(obj) == 0
+    if len(obj) != 2:
+        return False
+    try:
+        _parse_locator(obj[0])
+    except LocatorError:
+        return False
+    return True
 
 
 def parse_brightness(brightness: BRIGHTNESS_TYPE) -> "Brightness | FromSpectralType":

@@ -2,8 +2,10 @@
 """Currently only ``Star`` and baseclass."""
 
 from collections.abc import Sequence, Mapping
+from numbers import Integral
 
 import numpy as np
+from numpy.typing import ArrayLike
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
@@ -17,7 +19,12 @@ from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import Brightness, SpectrumTarget
-from .brightness import is_brightness_spec, FromSpectralType, LocatorError
+from .brightness import (
+    is_brightness_spec,
+    is_single_brightness,
+    FromSpectralType,
+    LocatorError,
+)
 
 
 class PointSourceTarget(SpectrumTarget):
@@ -572,6 +579,99 @@ class StarField(PointSourceTarget):
         if brightnesses is not None:
             self.brightnesses = brightnesses
 
+    @classmethod
+    def from_grid(
+        cls,
+        shape: int | tuple[int, int],
+        spacing: float | u.Quantity,
+        *,
+        spectra: SPECTRUM_TYPE | ArrayLike,
+        brightnesses: BRIGHTNESS_TYPE | ArrayLike,
+        band: str | None = None,
+        position: POSITION_TYPE | None = None,
+    ) -> "StarField":
+        """Regularly spaced grid of stars, centered on the field center.
+
+        Artificial, but useful for testing (PSF, photometric linearity,
+        distortion, ...).
+
+        Parameters
+        ----------
+        shape : int or (int, int)
+            Number of stars as ``(width, height)``, i.e. ``(nx, ny)``. A single
+            int gives a square grid.
+        spacing : float or Quantity
+            Distance between neighboring stars, the same along x and y. A plain
+            number is in arcsec.
+        spectra : spectrum or array-like of spectra
+            One spectrum for all stars, or a flat sequence of ``nx * ny``.
+        brightnesses : brightness or array-like of brightnesses
+            One brightness for all stars, or a flat sequence of ``nx * ny``.
+            Entries are full specs or bare amounts (located at `band`), as for
+            :class:`StarField`. A ``(locator, amount)`` pair counts as one
+            brightness (see :func:`~.brightness.is_single_brightness`).
+        band : str, optional
+            Default band for bare brightness amounts.
+        position : optional
+            Field center, see :class:`StarField`.
+
+        Notes
+        -----
+        The grid is symmetric about the field center, so there is a star at
+        the center only if both counts are odd.
+
+        Flat per-star values run along x first: the first element is the star
+        with the smallest x and y, i.e. bottom-left when plotted with
+        ``origin="lower"``, followed by the rest of that row with increasing x,
+        then the next row up. Since +x is East, "left" here is West -- the
+        mirror image of a standard East-left sky display.
+
+        Examples
+        --------
+        A 10x10 grid, 5 arcsec apart, with a brightness ramp from 10 to 20 mag:
+
+        >>> tgt = StarField.from_grid(
+        ...     10, 5 * u.arcsec,
+        ...     spectra="A0V",
+        ...     brightnesses=np.linspace(10, 20, 100),
+        ...     band="V",
+        ... )
+        """
+        n_x, n_y = _parse_grid_shape(shape)
+        n_stars = n_x * n_y
+
+        step = u.Quantity(spacing, u.arcsec)
+        if not step.isscalar or not step > 0:
+            raise ValueError(f"spacing must be a positive scalar, got {spacing!r}")
+        step = step.to_value(u.arcsec)
+
+        # indexing="xy" (default): x varies along axis 1, so a C-order ravel
+        # runs along x first, starting with the lowest row.
+        x_grid, y_grid = np.meshgrid(
+            (np.arange(n_x) - (n_x - 1) / 2) * step,
+            (np.arange(n_y) - (n_y - 1) / 2) * step,
+        )
+        offsets = np.column_stack([x_grid.ravel(), y_grid.ravel()]) << u.arcsec
+
+        if not isinstance(spectra, (str, SpectralType, SourceSpectrum)):
+            spectra = _flat_per_star(
+                spectra, n_stars, "spectra", _is_single_spectrum
+            )
+        if is_single_brightness(brightnesses):
+            brightnesses = [brightnesses] * n_stars
+        else:
+            brightnesses = _flat_per_star(
+                brightnesses, n_stars, "brightnesses", is_single_brightness
+            )
+
+        return cls(
+            positions=offsets,
+            spectra=spectra,
+            brightnesses=brightnesses,
+            band=band,
+            position=position,
+        )
+
     @property
     def position(self) -> SkyCoord:
         """Field center; per-star ``positions`` are offsets from it."""
@@ -832,3 +932,43 @@ class StarField(PointSourceTarget):
         table.meta["y_unit"] = "arcsec"
 
         return Source(field=TableSourceField(table, spectra=resolved_spectra))
+
+
+def _parse_grid_shape(shape) -> tuple[int, int]:
+    """Normalize a grid shape into ``(nx, ny)`` positive ints."""
+    def _is_count(value) -> bool:
+        return isinstance(value, Integral) and not isinstance(value, bool)
+
+    if _is_count(shape):
+        shape = (shape, shape)
+    elif not (isinstance(shape, Sequence) and len(shape) == 2):
+        raise TypeError(
+            f"shape must be an int or (width, height), got {shape!r}"
+        )
+    if not all(_is_count(n) for n in shape):
+        raise TypeError(f"shape entries must be ints, got {shape!r}")
+    if not all(n >= 1 for n in shape):
+        raise ValueError(f"shape entries must be at least 1, got {shape!r}")
+    return int(shape[0]), int(shape[1])
+
+
+def _is_single_spectrum(value) -> bool:
+    return isinstance(value, (str, SpectralType, SourceSpectrum)) or not (
+        isinstance(value, (Sequence, np.ndarray))
+    )
+
+
+def _flat_per_star(values, n_stars: int, name: str, is_single) -> list:
+    """Validate a flat, length-`n_stars` sequence of single per-star values."""
+    values = list(values)
+    if not all(is_single(value) for value in values):
+        raise ValueError(
+            f"{name} must be a single value or a flat sequence (no nested or "
+            "2D arrays)"
+        )
+    if len(values) != n_stars:
+        raise ValueError(
+            f"{name}: expected {n_stars} per-star values (nx * ny), "
+            f"got {len(values)}"
+        )
+    return values

@@ -21,6 +21,7 @@ from scopesim_targets.brightness import (
     FromSpectralType,
     BrightnessError,
     is_brightness_spec,
+    is_single_brightness,
     solid_angle_unit,
 )
 
@@ -270,3 +271,32 @@ class TestIsBrightnessSpec:
     ])
     def test_bare_amounts(self, amount):
         assert not is_brightness_spec(amount)
+
+
+class TestIsSingleBrightness:
+    """One brightness vs a sequence of per-item entries."""
+
+    @pytest.mark.parametrize("single", [
+        15,
+        "15 mag",
+        15*u.mag,
+        {"band": "V", "value": 15},
+        ("V", 15),  # pair: first item is a band
+        ["656.3 nm", "5 mJy"],  # pair: first item is a wavelength
+        (230*u.GHz, "5 mJy"),
+    ])
+    def test_single(self, single):
+        assert is_single_brightness(single)
+
+    @pytest.mark.parametrize("per_item", [
+        [15, 16],  # length 2, but 15 is no locator
+        ["15 mag", "16 mag"],
+        np.array([15., 16.]),
+        [15, 16]*u.mag,
+        [("R", 15), ("V", 16)],
+        (("R", 15), ("V", 16)),
+        [[15, 16], [17, 18]],
+        ("V", 15, 16),
+    ])
+    def test_per_item(self, per_item):
+        assert not is_single_brightness(per_item)

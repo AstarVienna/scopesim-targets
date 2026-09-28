@@ -570,3 +570,119 @@ class TestStarFieldTable:
             src.fields[0].field["y"], [p[1] for p in positions]
         )
         assert src.fields[0].field["x"].unit == u.arcsec
+
+
+class TestStarFieldFromGrid:
+    def test_square_geometry_and_order(self):
+        tgt = StarField.from_grid(3, 2, spectra="A0V", brightnesses=15, band="V")
+        # x runs fastest, starting bottom-left (smallest x and y)
+        np.testing.assert_array_equal(
+            tgt.offsets.to_value(u.arcsec),
+            [[-2, -2], [0, -2], [2, -2],
+             [-2, 0], [0, 0], [2, 0],
+             [-2, 2], [0, 2], [2, 2]],
+        )
+
+    def test_shape_is_width_height(self):
+        tgt = StarField.from_grid((4, 2), 1, spectra="A0V", brightnesses=15, band="V")
+        x, y = tgt.offsets.to_value(u.arcsec).T
+        np.testing.assert_array_equal(np.unique(x), [-1.5, -0.5, 0.5, 1.5])
+        np.testing.assert_array_equal(np.unique(y), [-0.5, 0.5])
+
+    def test_even_grid_has_no_center_star(self):
+        tgt = StarField.from_grid(2, 1, spectra="A0V", brightnesses=15, band="V")
+        assert not np.any(np.all(tgt.offsets.value == 0, axis=1))
+        np.testing.assert_allclose(tgt.offsets.value.mean(axis=0), [0, 0])
+
+    def test_spacing_units(self):
+        tgt = StarField.from_grid(2, 1 * u.arcmin, spectra="A0V", brightnesses=15, band="V")
+        np.testing.assert_array_equal(np.unique(tgt.offsets.to_value(u.arcsec)), [-30, 30])
+
+    @pytest.mark.parametrize(
+        ("shape", "exc"),
+        ((0, ValueError), ((3, 0), ValueError), (2.5, TypeError),
+         (True, TypeError), ((1, 2, 3), TypeError), ((2, 2.0), TypeError)),
+    )
+    def test_invalid_shape(self, shape, exc):
+        with pytest.raises(exc):
+            StarField.from_grid(shape, 1, spectra="A0V", brightnesses=15, band="V")
+
+    @pytest.mark.parametrize(
+        ("spacing", "exc"),
+        ((0, ValueError), (-1, ValueError), ([1, 2], ValueError),
+         (1 * u.pc, u.UnitConversionError)),
+    )
+    def test_invalid_spacing(self, spacing, exc):
+        with pytest.raises(exc):
+            StarField.from_grid(2, spacing, spectra="A0V", brightnesses=15, band="V")
+
+    @pytest.mark.parametrize(
+        "shared",
+        (15, "15 mag", 15 * u.mag, ("V", 15), {"band": "V", "value": 15}),
+    )
+    def test_shared_brightness(self, shared):
+        # ("V", 15) on a 2-star grid: one pair, not two per-star amounts
+        tgt = StarField.from_grid((2, 1), 1, spectra="A0V", brightnesses=shared, band="V")
+        expected = parse_brightness(("V", 15))
+        assert tgt.brightnesses == [expected, expected]
+
+    @pytest.mark.parametrize(
+        "per_star",
+        ([15, 16], ["15 mag", "16 mag"], np.array([15, 16]), [15, 16] * u.mag,
+         [("V", 15), ("V", 16)]),
+    )
+    def test_per_star_brightness(self, per_star):
+        tgt = StarField.from_grid((2, 1), 1, spectra="A0V", brightnesses=per_star, band="V")
+        assert tgt.brightnesses == [parse_brightness(("V", m)) for m in (15, 16)]
+
+    def test_brightness_ramp_follows_order(self):
+        tgt = StarField.from_grid(
+            (3, 2), 1, spectra="A0V", brightnesses=np.linspace(10, 15, 6), band="V"
+        )
+        # first element bottom-left, last top-right
+        assert tgt.brightnesses[0] == parse_brightness(("V", 10))
+        np.testing.assert_array_equal(tgt.offsets[0].value, [-1, -0.5])
+        np.testing.assert_array_equal(tgt.offsets[-1].value, [1, 0.5])
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        (("brightnesses", np.arange(4).reshape(2, 2)),
+         ("brightnesses", [[15, 16], [17, 18]]),
+         ("spectra", [["A0V", "G2V"], ["A0V", "G2V"]]),
+         ("spectra", np.array([["A0V", "G2V"], ["A0V", "G2V"]]))),
+    )
+    def test_2d_rejected(self, name, value):
+        kwargs = {"spectra": "A0V", "brightnesses": 15, name: value}
+        with pytest.raises(ValueError, match="flat sequence"):
+            StarField.from_grid(2, 1, band="V", **kwargs)
+
+    @pytest.mark.parametrize("name", ("spectra", "brightnesses"))
+    def test_wrong_length(self, name):
+        kwargs = {"spectra": "A0V", "brightnesses": 15}
+        kwargs[name] = ["A0V"] * 3 if name == "spectra" else [15] * 3
+        with pytest.raises(ValueError, match="expected 4 per-star values"):
+            StarField.from_grid(2, 1, band="V", **kwargs)
+
+    def test_per_star_spectra(self):
+        tgt = StarField.from_grid(
+            (2, 1), 1, spectra=np.array(["A0V", "G2V"]), brightnesses=15, band="V"
+        )
+        assert tgt.spectra == ["a0v", "g2v"]
+
+    def test_field_center(self):
+        center = SkyCoord(150.1 * u.deg, 2.2 * u.deg)
+        tgt = StarField.from_grid(
+            1, 1, spectra="A0V", brightnesses=15, band="V", position=center
+        )
+        assert tgt.positions[0].separation(center).arcsec < 1e-9
+
+    def test_to_source(self, offline_field):
+        src = StarField.from_grid(
+            (3, 2), 5, spectra="G2V",
+            brightnesses=[f"{m} mag(AB)" for m in (15, 15, 15, 17.5, 17.5, 17.5)],
+            band="V",
+        ).to_source()
+        field = src.fields[0].field
+        np.testing.assert_array_equal(field["x"], [-5, 0, 5] * 2)
+        np.testing.assert_array_equal(field["y"], [-2.5] * 3 + [2.5] * 3)
+        np.testing.assert_allclose(field["weight"][3:] / field["weight"][:3], 0.1)
