@@ -56,7 +56,7 @@ class TestStreams:
         # APPEND-ONLY contract: existing indices must never change.
         assert STREAMS["population"] == 0
         assert STREAMS["morphology"] == 1
-        assert STREAMS["extinction"] == 2
+        assert STREAMS["attenuation"] == 2
         assert STREAMS["count"] == 3
         assert STREAMS["magnitudes"] == 4
         assert STREAMS["spectra"] == 5
@@ -137,6 +137,7 @@ class TestSeededMorphology:
         assert phi.shape == radius.shape
 
 
+@pytest.mark.slow
 class TestSeededPopulation:
     def test_same_seed_same_masses(self):
         a = IMFPopulation(50, rng_seed=3).sample_imf()

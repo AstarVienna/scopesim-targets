@@ -6,7 +6,7 @@ It is resolved once into a master seed -- the given int, or fresh OS entropy
 for ``None`` -- which the target records, so every realization, seeded or not,
 can be reproduced from the target alone.
 
-Each independent sampling step (population, morphology, extinction, ...) draws
+Each independent sampling step (population, morphology, attenuation, ...) draws
 from its own named stream, a child of the master seed. Streams are addressed by
 name via :data:`STREAMS`, so a target can use any subset of them and adding a
 new stream never changes the draws of existing ones.
@@ -40,7 +40,7 @@ SeedLike = int | np.random.SeedSequence | None
 STREAMS: dict[str, int] = {
     "population": 0,
     "morphology": 1,
-    "extinction": 2,
+    "attenuation": 2,  # per-star source-side dust column (natal cloud)
     "count": 3,  # Poisson star counts (random star fields)
     "magnitudes": 4,  # per-star magnitudes (random star fields)
     "spectra": 5,  # per-star spectrum choice (random star fields)
