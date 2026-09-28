@@ -9,25 +9,41 @@ from astropy.modeling.functional_models import KingProjectedAnalytic1D
 from matplotlib import axes
 
 from ..target import length_angle_context
+from ..seeding import SeedLike, as_seed_sequence, new_rng
 from ..plot_utils import figure_factory, draw_circle
 
 
 class Morphology:
-    """Base class for stellar cluster morphologies."""
+    """Base class for stellar cluster morphologies.
 
-    def __init__(self, n_stars: int):
+    `rng_seed` fixes the realization: every :meth:`sample` of the same object
+    returns the same positions (see :mod:`~scopesim_targets.seeding`). The
+    default ``None`` draws fresh entropy once, at construction.
+    """
+
+    def __init__(self, n_stars: int, rng_seed: SeedLike = None):
         self._n_stars = n_stars
-        self._rng = np.random.default_rng()
+        self._seed = as_seed_sequence(rng_seed)
+
+    def _new_rng(self) -> np.random.Generator:
+        """Fresh generator at the start of this object's stream."""
+        return new_rng(self._seed)
 
 
 class SphericallySymmetricalMorphology(Morphology):
-    def _sample_phi(self) -> Angle:
-        return Angle(self._rng.uniform(-np.pi, np.pi, self._n_stars) * u.rad)
+    def _sample_phi(self, rng: np.random.Generator) -> Angle:
+        return Angle(rng.uniform(-np.pi, np.pi, self._n_stars) * u.rad)
 
 
 class KingProfileMorphology(SphericallySymmetricalMorphology):
-    def __init__(self, n_stars: int, r_core: float, r_tide: float):
-        super().__init__(n_stars=n_stars)
+    def __init__(
+        self,
+        n_stars: int,
+        r_core: float,
+        r_tide: float,
+        rng_seed: SeedLike = None,
+    ):
+        super().__init__(n_stars=n_stars, rng_seed=rng_seed)
 
         class KingRadialProfile(KingProjectedAnalytic1D):
             def pdf(self, x):
@@ -44,25 +60,28 @@ class KingProfileMorphology(SphericallySymmetricalMorphology):
                 f"{self.radial_profile.concentration}"
             )
 
-        self._sampler = NumericalInversePolynomial(
-            self.radial_profile,
-            random_state=self._rng,
-        )
+        # Built once (setup is the expensive part); the generator is passed
+        # per draw, see `_sample_radius`.
+        self._sampler = NumericalInversePolynomial(self.radial_profile)
 
     @property
     def r_unit(self) -> u.Unit:
         return self.radial_profile.input_units["x"]
 
-    def _sample_radius(self):
-        return self._sampler.rvs(self._n_stars) << self.r_unit
+    def _sample_radius(self, rng: np.random.Generator):
+        return self._sampler.rvs(self._n_stars, random_state=rng) << self.r_unit
 
     def sample(self, parent_position: SkyCoord) -> SkyCoord:
         # HACK: This is WET with PointSourceTarget.....
         local_frame = parent_position.skyoffset_frame()
+        # One generator for both draws: separate fresh generators would replay
+        # the same stream and correlate angle with radius.
+        rng = self._new_rng()
+        phi = self._sample_phi(rng)
+        radius = self._sample_radius(rng)
         with length_angle_context(parent_position.distance):
             local_positions = parent_position.directional_offset_by(
-                self._sample_phi(),
-                self._sample_radius(),
+                phi, radius
             ).transform_to(local_frame)
             x_arcsec = local_positions.lon.to_value(u.arcsec).round(6)
             y_arcsec = local_positions.lat.to_value(u.arcsec).round(6)

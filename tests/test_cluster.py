@@ -21,6 +21,8 @@ def basic_cluster():
     )
     return tgt
 
+
+@pytest.mark.slow
 class TestZeroAgeCluster:
     def test_basic(self, basic_cluster):
         assert isinstance(basic_cluster, Cluster)
