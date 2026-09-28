@@ -3,6 +3,8 @@
 
 from unittest.mock import patch
 
+import warnings
+
 import pytest
 import yaml
 import numpy as np
@@ -22,6 +24,7 @@ from scopesim_targets.point_source import (
     Exoplanet,
     PlanetarySystem,
     StarField,
+    EmptyStarFieldWarning,
 )
 
 
@@ -455,7 +458,6 @@ class TestStarFieldPositions:
             ([(1, 2, 3)], ValueError),
             ([{"x": 1, "y": 2, "distance": 3 * u.pc}], ValueError),
             ("bogus", TypeError),
-            ([], ValueError),
         ),
     )
     def test_invalid_forms(self, positions, exc):
@@ -686,3 +688,223 @@ class TestStarFieldFromGrid:
         np.testing.assert_array_equal(field["x"], [-5, 0, 5] * 2)
         np.testing.assert_array_equal(field["y"], [-2.5] * 3 + [2.5] * 3)
         np.testing.assert_allclose(field["weight"][3:] / field["weight"][:3], 0.1)
+
+
+class TestStarFieldEmpty:
+    @pytest.mark.parametrize("spectra", ("A0V", []))
+    def test_empty_field(self, spectra):
+        tgt = StarField(positions=[], spectra=spectra, brightnesses=[], band="V")
+        assert tgt.offsets.shape == (0, 2)
+        assert tgt.spectra == []
+        assert len(tgt.positions) == 0
+
+    @pytest.mark.parametrize("spectra", ("G2V", []))
+    def test_empty_to_source(self, spectra, offline_field):
+        src = StarField(
+            positions=np.empty((0, 2)), spectra=spectra, brightnesses=[], band="V"
+        ).to_source()
+        field = src.fields[0]
+        assert len(field.field) == 0
+        assert len(field.spectra) == 1  # ScopeSim needs a non-empty mapping
+        assert field.field["ref"].dtype.kind == "i"
+
+    def test_shared_spectrum_follows_count(self):
+        tgt = StarField(positions=[], spectra="A0V")
+        assert tgt.spectra == []
+        tgt.positions = [(0, 0), (1, 1)]
+        assert len(tgt.spectra) == 2
+
+
+RANDOM_KWARGS = {
+    "band": "V",
+    "mag_range": (15, 22),
+    "spectra": ["A0V", "G2V", "M2V"],
+}
+
+
+class TestStarFieldFromRandom:
+    def test_basic(self):
+        tgt = StarField.from_random(300, (60, 40), rng_seed=1, **RANDOM_KWARGS)
+        x, y = tgt.offsets.to_value(u.arcsec).T
+        assert len(x) == 300
+        assert np.abs(x).max() <= 30 and np.abs(y).max() <= 20
+        mags = np.array([b.value.to_value(u.mag) for b in tgt.brightnesses])
+        assert mags.min() >= 15 and mags.max() <= 22
+        assert {b.locator for b in tgt.brightnesses} == {"V"}
+        assert {str(s).upper() for s in tgt.spectra} == {"A0V", "G2V", "M2V"}
+
+    def test_same_seed_same_field(self):
+        a = StarField.from_random(50, 30, rng_seed=7, **RANDOM_KWARGS)
+        b = StarField.from_random(50, 30, rng_seed=7, **RANDOM_KWARGS)
+        np.testing.assert_array_equal(a.offsets, b.offsets)
+        assert a.brightnesses == b.brightnesses
+        assert a.spectra == b.spectra
+
+    def test_different_seed_differs(self):
+        a = StarField.from_random(50, 30, rng_seed=7, **RANDOM_KWARGS)
+        c = StarField.from_random(50, 30, rng_seed=8, **RANDOM_KWARGS)
+        assert not np.array_equal(a.offsets, c.offsets)
+
+    def test_unseeded_is_reproducible_from_record(self):
+        original = StarField.from_random(50, 30, **RANDOM_KWARGS)
+        seed = original.generated_by["rng_seed"]
+        assert isinstance(seed, int)
+        replay = StarField.from_random(50, 30, rng_seed=seed, **RANDOM_KWARGS)
+        np.testing.assert_array_equal(original.offsets, replay.offsets)
+        assert original.brightnesses == replay.brightnesses
+
+    def test_streams_are_independent(self):
+        # Changing the spectral choices must not move stars or change mags.
+        a = StarField.from_random(50, 30, rng_seed=7, **RANDOM_KWARGS)
+        b = StarField.from_random(
+            50, 30, rng_seed=7, **{**RANDOM_KWARGS, "spectra": ["K5V", "G2V"]}
+        )
+        np.testing.assert_array_equal(a.offsets, b.offsets)
+        assert a.brightnesses == b.brightnesses
+
+    def test_exclude_radius(self):
+        tgt = StarField.from_random(
+            200, 30, exclude_radius=6 * u.arcsec, rng_seed=3, **RANDOM_KWARGS
+        )
+        assert len(tgt.offsets) == 200
+        assert np.hypot(*tgt.offsets.to_value(u.arcsec).T).min() >= 6
+
+    def test_shared_spectrum(self):
+        tgt = StarField.from_random(
+            20, 30, rng_seed=1, **{**RANDOM_KWARGS, "spectra": "G2V"}
+        )
+        assert tgt._common_spectrum == "g2v"
+
+    def test_system(self):
+        tgt = StarField.from_random(
+            5, 30, system="AB", rng_seed=1, **RANDOM_KWARGS
+        )
+        assert {b.system.name for b in tgt.brightnesses} == {"AB"}
+
+    def test_slope_shapes_distribution(self):
+        faint = StarField.from_random(2000, 30, slope=0.5, rng_seed=1, **RANDOM_KWARGS)
+        flat = StarField.from_random(2000, 30, slope=0.0, rng_seed=1, **RANDOM_KWARGS)
+        median = lambda f: np.median([b.value.value for b in f.brightnesses])
+        assert median(faint) > median(flat) + 1
+
+    def test_field_center_and_length_size(self):
+        center = SkyCoord(150.1 * u.deg, 2.2 * u.deg, 1 * u.kpc)
+        tgt = StarField.from_random(
+            100, 1 * u.pc, position=center, rng_seed=1, **RANDOM_KWARGS
+        )
+        # 1 pc at 1 kpc is ~206 arcsec
+        assert np.abs(tgt.offsets.to_value(u.arcsec)).max() <= 206.265 / 2
+        assert tgt.position == center
+
+    def test_zero_stars_is_silent(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            tgt = StarField.from_random(0, 30, rng_seed=1, **RANDOM_KWARGS)
+        assert tgt.offsets.shape == (0, 2)
+
+    def test_provenance(self):
+        tgt = StarField.from_random(10, (60, 40), rng_seed=5, **RANDOM_KWARGS)
+        assert tgt.generated_by["method"] == "from_random"
+        assert tgt.generated_by["rng_seed"] == 5
+        assert tgt.generated_by["params"]["n_stars"] == 10
+        assert tgt.generated_by["params"]["size"] == (60, 40)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "exc"),
+        (
+            ({"spectra": []}, ValueError),
+            ({"spectra": [["A0V"]]}, ValueError),
+            ({"mag_range": (15, 15)}, ValueError),
+            ({"rng_seed": -1}, ValueError),
+        ),
+    )
+    def test_invalid(self, kwargs, exc):
+        with pytest.raises(exc):
+            StarField.from_random(5, 30, **{**RANDOM_KWARGS, **kwargs})
+
+    def test_to_source(self, offline_field):
+        src = StarField.from_random(
+            40, 30, rng_seed=2,
+            **{**RANDOM_KWARGS, "spectra": ["A0V", "G2V"], "system": "AB"},
+        ).to_source()
+        field = src.fields[0]
+        assert len(field.field) == 40
+        assert set(field.field["ref"]) <= {0, 1}
+        assert np.all(np.asarray(field.field["weight"]) > 0)
+
+
+class TestStarFieldFromRandomDensity:
+    def test_count_is_poisson_around_expectation(self):
+        # 2 / arcmin2 over 10 x 10 arcmin -> mean 200
+        counts = [
+            len(StarField.from_random_density(
+                2 / u.arcmin**2, 10 * u.arcmin, rng_seed=seed,
+                **{**RANDOM_KWARGS, "spectra": "G2V"},
+            ).offsets)
+            for seed in range(40)
+        ]
+        assert abs(np.mean(counts) - 200) < 4 * np.sqrt(200 / 40)
+        assert len(set(counts)) > 1
+
+    def test_wraps_from_random_with_same_seed(self):
+        dense = StarField.from_random_density(
+            "3 / arcmin2", 120, rng_seed=11, **RANDOM_KWARGS
+        )
+        n_stars = len(dense.offsets)
+        direct = StarField.from_random(n_stars, 120, rng_seed=11, **RANDOM_KWARGS)
+        np.testing.assert_array_equal(dense.offsets, direct.offsets)
+        assert dense.brightnesses == direct.brightnesses
+        assert dense.spectra == direct.spectra
+
+    def test_exclusion_reduces_expected_count(self):
+        full = StarField.from_random_density(
+            1 / u.arcsec**2, 10, rng_seed=1, **RANDOM_KWARGS
+        )
+        holed = StarField.from_random_density(
+            1 / u.arcsec**2, 10, exclude_radius=2, rng_seed=1, **RANDOM_KWARGS
+        )
+        np.testing.assert_allclose(full.generated_by["params"]["expected_n_stars"], 100)
+        np.testing.assert_allclose(
+            holed.generated_by["params"]["expected_n_stars"], 100 - 4 * np.pi
+        )
+
+    def test_empty_draw_warns_and_returns_empty_field(self):
+        with pytest.warns(EmptyStarFieldWarning, match="drew 0 stars"):
+            tgt = StarField.from_random_density(
+                1e-4 / u.arcmin**2, 10, rng_seed=1, **RANDOM_KWARGS
+            )
+        assert tgt.offsets.shape == (0, 2)
+
+    def test_empty_draw_can_be_escalated(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", EmptyStarFieldWarning)
+            with pytest.raises(EmptyStarFieldWarning):
+                StarField.from_random_density(
+                    1e-4 / u.arcmin**2, 10, rng_seed=1, **RANDOM_KWARGS
+                )
+
+    def test_provenance(self):
+        tgt = StarField.from_random_density(
+            "2 / arcmin2", 60, rng_seed=4, **RANDOM_KWARGS
+        )
+        record = tgt.generated_by
+        assert record["method"] == "from_random_density"
+        assert record["rng_seed"] == 4
+        assert record["params"]["density"] == 2 / u.arcmin**2
+        assert record["params"]["n_stars"] == len(tgt.offsets)
+
+    @pytest.mark.parametrize(
+        ("density", "exc"),
+        ((3 / u.arcsec, ValueError), (-1 / u.arcmin**2, ValueError), ("bogus", TypeError)),
+    )
+    def test_invalid_density(self, density, exc):
+        with pytest.raises(exc):
+            StarField.from_random_density(density, 30, **RANDOM_KWARGS)
+
+
+def test_from_grid_provenance():
+    tgt = StarField.from_grid((3, 2), 1 * u.arcmin, spectra="A0V", brightnesses=15, band="V")
+    assert tgt.generated_by == {
+        "method": "from_grid",
+        "params": {"shape": (3, 2), "spacing": 60 * u.arcsec},
+    }

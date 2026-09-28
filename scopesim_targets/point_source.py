@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Currently only ``Star`` and baseclass."""
+"""Any target that will be unresolved for all instruments, e.g. ``Star``."""
 
+import warnings
 from collections.abc import Sequence, Mapping
 from numbers import Integral
 
@@ -9,7 +10,8 @@ from numpy.typing import ArrayLike
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
-from synphot import SourceSpectrum
+from synphot import SourceSpectrum, units as synphot_units
+from synphot.models import ConstFlux1D
 
 from astar_utils import SpectralType
 from astar_utils.guard_functions import guard_same_len
@@ -19,6 +21,9 @@ from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import Brightness, SpectrumTarget
+from .seeding import resolve_seed, stream, new_rng
+from .stellar.luminosity import sample_magnitudes
+from .stellar.morphology import UniformRectangularMorphology
 from .brightness import (
     is_brightness_spec,
     is_single_brightness,
@@ -514,6 +519,14 @@ class PlanetarySystem(PointSourceTarget):
         return source
 
 
+class EmptyStarFieldWarning(UserWarning):
+    """A randomly generated star field came out with no stars.
+
+    Not an error: a thin field can legitimately draw zero stars. Escalate with
+    ``warnings.simplefilter("error", EmptyStarFieldWarning)`` to make it one.
+    """
+
+
 # TODO: Common base class for multi-component targets
 class StarField(PointSourceTarget):
     """Multiple stars around a common field center.
@@ -527,6 +540,15 @@ class StarField(PointSourceTarget):
 
     ``spectra`` is either one spectrum per star, or a single spectrum shared by
     all stars.
+
+    A field may be empty (zero stars); it still converts to a valid (empty)
+    ScopeSim Source.
+
+    Fields made by the constructors :meth:`from_grid`, :meth:`from_random` and
+    :meth:`from_random_density` record how they were made in
+    :attr:`generated_by` (method, parameters and, for random fields, the
+    resolved master seed). This is provenance only: the realized stars are
+    authoritative, nothing is regenerated from it.
 
     .. todo:: Default ``role`` to ``"background"`` (fore-/background fields are
         the typical use), once ``role`` is implemented on targets and in the
@@ -568,6 +590,7 @@ class StarField(PointSourceTarget):
         # already set, so no up-front guard (which could not know about a
         # broadcast spectrum) is needed.
         self.band = band
+        self.generated_by: dict | None = None
         # Center first: absolute per-star positions are converted to offsets
         # from it on assignment.
         if position is not None:
@@ -664,13 +687,215 @@ class StarField(PointSourceTarget):
                 brightnesses, n_stars, "brightnesses", is_single_brightness
             )
 
-        return cls(
+        field = cls(
             positions=offsets,
             spectra=spectra,
             brightnesses=brightnesses,
             band=band,
             position=position,
         )
+        field.generated_by = {
+            "method": "from_grid",
+            "params": {"shape": (n_x, n_y), "spacing": step * u.arcsec},
+        }
+        return field
+
+    @classmethod
+    def from_random(
+        cls,
+        n_stars: int,
+        size: float | u.Quantity | tuple,
+        *,
+        band: str,
+        mag_range: tuple[float, float],
+        slope: float = 0.3,
+        system: str = "Vega",
+        spectra: SPECTRUM_TYPE | ArrayLike,
+        position: POSITION_TYPE | None = None,
+        exclude_radius: float | u.Quantity | None = None,
+        rng_seed: int | None = None,
+    ) -> "StarField":
+        """Exactly `n_stars` random stars, e.g. as fore- or background.
+
+        Positions are uniform over a rectangle centered on the field center,
+        magnitudes follow exponential star counts
+        (:func:`~.stellar.luminosity.sample_magnitudes`), and each star's
+        spectrum is drawn uniformly from `spectra`.
+
+        Parameters
+        ----------
+        n_stars : int
+            Number of stars (exact; 0 gives an empty field).
+        size : float, Quantity or (width, height)
+            Extent of the rectangle; a scalar gives a square. Plain numbers
+            are arcsec; lengths need a field center `position` with a
+            distance.
+        band : str
+            Band of the magnitudes.
+        mag_range : (float, float)
+            Bright and faint magnitude limits, in `system`.
+        slope : float, optional
+            Star-count slope ``d log10(N) / dm`` (default 0.3; 0 is uniform in
+            magnitude). The realistic value depends on band and galactic
+            latitude, so set it explicitly where it matters.
+        system : {"Vega", "AB", "ST"}, optional
+            Photometric system of the magnitudes (default Vega).
+        spectra : spectrum or array-like of spectra
+            One spectrum for all stars, or a flat sequence of choices each
+            star draws from uniformly. Repeat entries for integer weights.
+        position : optional
+            Field center, see :class:`StarField`.
+        exclude_radius : float or Quantity, optional
+            Keep a central circle free of stars, e.g. around a science target.
+            The count stays exact.
+        rng_seed : int, optional
+            Master seed. ``None`` (default) draws fresh entropy, which is
+            recorded in :attr:`generated_by`, so every field is reproducible.
+
+        See Also
+        --------
+        from_random_density : Poisson-distributed count for a given density.
+
+        Examples
+        --------
+        >>> tgt = StarField.from_random(
+        ...     200, (60, 40),
+        ...     band="V", mag_range=(15, 22),
+        ...     spectra=["G2V", "K5V", "M2V"],
+        ...     exclude_radius=5 * u.arcsec,
+        ...     rng_seed=42,
+        ... )
+        """
+        master_seed = resolve_seed(rng_seed)
+        field = cls(band=band, position=position)
+        center = field.resolve_position()
+
+        morphology = UniformRectangularMorphology(
+            n_stars, size, exclude_radius,
+            rng_seed=stream(master_seed, "morphology"),
+        )
+        x_arcsec, y_arcsec = morphology.sample(center)
+        magnitudes = sample_magnitudes(
+            n_stars, mag_range, slope, new_rng(stream(master_seed, "magnitudes"))
+        )
+
+        field.positions = np.column_stack([x_arcsec, y_arcsec]) << u.arcsec
+        if isinstance(spectra, (str, SpectralType, SourceSpectrum)):
+            field.spectra = spectra
+        else:
+            choices = list(spectra)
+            if not choices or not all(_is_single_spectrum(c) for c in choices):
+                raise ValueError(
+                    "spectra must be a single spectrum or a non-empty flat "
+                    "sequence of choices"
+                )
+            choices = [field._parse_spectrum(choice) for choice in choices]
+            picks = new_rng(stream(master_seed, "spectra")).integers(
+                len(choices), size=n_stars
+            )
+            field.spectra = [choices[pick] for pick in picks]
+        field.brightnesses = [
+            {"band": band, "value": float(magnitude), "system": system}
+            for magnitude in magnitudes
+        ]
+
+        field.generated_by = {
+            "method": "from_random",
+            "rng_seed": master_seed,
+            "params": {
+                "n_stars": n_stars,
+                "size": size,
+                "band": band,
+                "mag_range": tuple(mag_range),
+                "slope": slope,
+                "system": system,
+                "spectra": spectra,
+                "exclude_radius": exclude_radius,
+            },
+        }
+        return field
+
+    @classmethod
+    def from_random_density(
+        cls,
+        density: u.Quantity | str,
+        size: float | u.Quantity | tuple,
+        *,
+        band: str,
+        mag_range: tuple[float, float],
+        slope: float = 0.3,
+        system: str = "Vega",
+        spectra: SPECTRUM_TYPE | ArrayLike,
+        position: POSITION_TYPE | None = None,
+        exclude_radius: float | u.Quantity | None = None,
+        rng_seed: int | None = None,
+    ) -> "StarField":
+        """Random stars at a given surface density, e.g. as a background.
+
+        The number of stars is Poisson-distributed with mean `density` times
+        the area stars can occupy (the rectangle minus any exclusion circle),
+        so `density` describes the rendered field. Everything else is as in
+        :meth:`from_random`, which this wraps with the same master seed.
+
+        Parameters
+        ----------
+        density : Quantity or str
+            Surface density per solid angle, e.g. ``3 / u.arcmin**2`` or
+            ``"3 / arcmin2"``.
+        size, band, mag_range, slope, system, spectra, position, \
+        exclude_radius, rng_seed
+            See :meth:`from_random`.
+
+        Warns
+        -----
+        EmptyStarFieldWarning
+            If the draw gives zero stars. The (empty) field is still returned.
+        """
+        master_seed = resolve_seed(rng_seed)
+        density = u.Quantity(density)
+        try:
+            per_arcsec2 = density.to_value(u.arcsec**-2)
+        except u.UnitConversionError:
+            raise ValueError(
+                f"density must be per solid angle (e.g. 3 / arcmin2), got {density}"
+            ) from None
+        if not (np.isscalar(per_arcsec2) and per_arcsec2 >= 0):
+            raise ValueError(f"density must be a non-negative scalar, got {density}")
+
+        center = cls(position=position).resolve_position()
+        # Area only depends on the extent, not on the (still unknown) count.
+        area = UniformRectangularMorphology(
+            0, size, exclude_radius, rng_seed=master_seed
+        ).area(center)
+        expected = per_arcsec2 * area.to_value(u.arcsec**2)
+        n_stars = int(new_rng(stream(master_seed, "count")).poisson(expected))
+
+        if n_stars == 0:
+            warnings.warn(
+                EmptyStarFieldWarning(
+                    f"Random star field drew 0 stars (expected {expected:.3g} "
+                    f"in {area.to_value(u.arcmin**2):.3g} arcmin2 at "
+                    f"{density}); returning an empty field."
+                ),
+                stacklevel=2,
+            )
+
+        field = cls.from_random(
+            n_stars, size,
+            band=band, mag_range=mag_range, slope=slope, system=system,
+            spectra=spectra, position=position,
+            exclude_radius=exclude_radius, rng_seed=master_seed,
+        )
+        field.generated_by = {
+            "method": "from_random_density",
+            "rng_seed": master_seed,
+            "params": {
+                **field.generated_by["params"],
+                "density": density,
+                "expected_n_stars": expected,
+            },
+        }
+        return field
 
     @property
     def position(self) -> SkyCoord:
@@ -767,6 +992,8 @@ class StarField(PointSourceTarget):
                     [self._parse_offset_pair(pos) for pos in positions]
                 )
 
+        if offsets.size == 0:
+            offsets = offsets.reshape((0, 2))  # empty field
         if offsets.ndim != 2 or offsets.shape[1] != 2:
             raise ValueError(
                 f"positions must be N (x, y) pairs, got shape {offsets.shape}"
@@ -801,7 +1028,8 @@ class StarField(PointSourceTarget):
         """Per-star spectra; a shared spectrum is repeated for every star."""
         common = getattr(self, "_common_spectrum", None)
         if common is not None:
-            return [common] * (self._n_stars() or 1)
+            n_stars = self._n_stars()
+            return [common] * (1 if n_stars is None else n_stars)
         return getattr(self, "_spectra", None)
 
     @spectra.setter
@@ -915,6 +1143,13 @@ class StarField(PointSourceTarget):
             for i, scale in zip(indices, scales):
                 weights[i] = scale
 
+        if not resolved_spectra:
+            # Empty field: ScopeSim requires a non-empty spectra mapping even
+            # when no row references it; a zero-flux placeholder is harmless.
+            resolved_spectra = {
+                0: SourceSpectrum(ConstFlux1D, amplitude=0 * synphot_units.PHOTLAM)
+            }
+
         # TODO: Refactor...
         table = Table(
             names=["x", "y", "ref", "weight"],
@@ -922,8 +1157,8 @@ class StarField(PointSourceTarget):
             data={
                 "x": x_positions,
                 "y": y_positions,
-                "ref": spec_refs,
-                "weight": weights,
+                "ref": np.asarray(spec_refs, dtype=int),
+                "weight": np.asarray(weights, dtype=float),
             },
         )
 
