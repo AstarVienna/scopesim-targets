@@ -25,6 +25,7 @@ from scopesim.source.source_fields import TableSourceField
 
 from .typing_utils import POSITION_TYPE
 from .target import Target
+from .seeding import resolve_seed, stream
 from .stellar import populations, morphology
 
 
@@ -49,6 +50,7 @@ class ZeroAgeCluster(Cluster):
         pop_params: Mapping[str, Any],
         morph_class: morphology.Morphology | str,
         morph_params: Mapping[str, Any],
+        rng_seed: int | None = None,
     ) -> None:
         # Required for YAML definitions, which provide only strings...
         if isinstance(pop_class, str):
@@ -56,10 +58,20 @@ class ZeroAgeCluster(Cluster):
         if isinstance(morph_class, str):
             morph_class = getattr(morphology, morph_class)
 
+        # Record the master seed actually used (fresh entropy for None), so
+        # every realization, seeded or not, is reproducible from the target.
+        # Population, morphology and (later) extinction each draw from their
+        # own named stream of it, see `seeding.STREAMS`.
+        self.rng_seed = resolve_seed(rng_seed)
+
         super().__init__(
             position,
-            pop_class(**pop_params),
-            morph_class(**morph_params),
+            pop_class(
+                **pop_params, rng_seed=stream(self.rng_seed, "population")
+            ),
+            morph_class(
+                **morph_params, rng_seed=stream(self.rng_seed, "morphology")
+            ),
         )
 
     def to_source(self, optical_train=None):

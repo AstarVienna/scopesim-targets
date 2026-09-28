@@ -11,8 +11,12 @@ from scopesim_targets.target import Target
 
 EXAMPLE_YAML_PATH = Path(__package__).parent / "docs"
 
+pytestmark = [
+    pytest.mark.xfail,
+    pytest.mark.slow,
+]
 
-@pytest.mark.xfail
+
 def test_examle_yamls_parse(subtests):
     for file in EXAMPLE_YAML_PATH.rglob("*.yaml"):
         with subtests.test(filename=file.name):
@@ -21,7 +25,6 @@ def test_examle_yamls_parse(subtests):
             assert isinstance(tgt, Target)
 
 
-@pytest.mark.xfail
 def test_examle_yamls_can_make_source(subtests):
     grid = {"pixel_scale": 0.1*u.arcsec/u.pix, "width": 200, "height": 100}
     for file in EXAMPLE_YAML_PATH.rglob("*.yaml"):

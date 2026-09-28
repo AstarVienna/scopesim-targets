@@ -11,6 +11,7 @@ from astar_utils import SpectralType
 from spextra import SpecLibrary, Spextrum
 
 from ..spectral_classes import StellarParameters
+from ..seeding import SeedLike, as_seed_sequence, new_rng
 from ..plot_utils import figure_factory
 from .imf import DEFAULT_IMFS
 
@@ -21,12 +22,22 @@ HIGH_LOW_MASS_LIMIT = 1.07*u.solMass
 
 
 class Population:
-    """Base class for stellar populations."""
+    """Base class for stellar populations.
 
-    def __init__(self, n_stars: int):
+    `rng_seed` fixes the realization: every draw of the same object returns
+    the same sample (see :mod:`~scopesim_targets.seeding`). The default
+    ``None`` draws fresh entropy once, at construction.
+    """
+
+    def __init__(self, n_stars: int, rng_seed: SeedLike = None):
         self._n_stars = n_stars
+        self._seed = as_seed_sequence(rng_seed)
         # TODO: Consider using a singelton-ish thing here
         self._stellar_params = StellarParameters()  # Default lookup table
+
+    def _new_rng(self) -> np.random.Generator:
+        """Fresh generator at the start of this object's stream."""
+        return new_rng(self._seed)
 
 
 class ZeroAgePopulation(Population):
@@ -38,14 +49,24 @@ class IMFPopulation(ZeroAgePopulation):
 
     imf: rv_continuous = DEFAULT_IMFS["kroupa02"]
 
-    def __init__(self, n_stars: int, imf: rv_continuous | None = None):
-        super().__init__(n_stars)
+    def __init__(
+        self,
+        n_stars: int,
+        imf: rv_continuous | None = None,
+        rng_seed: SeedLike = None,
+    ):
+        super().__init__(n_stars, rng_seed=rng_seed)
         if imf is not None:
             self.imf = imf
 
     @classmethod
     @u.quantity_input
-    def from_total_mass(cls, total_mass: u.Quantity[u.solMass], imf: rv_continuous | None = None):
+    def from_total_mass(
+        cls,
+        total_mass: u.Quantity[u.solMass],
+        imf: rv_continuous | None = None,
+        rng_seed: SeedLike = None,
+    ):
         """Generate population for total (cluster) mass.
 
         For non-continous distributions (e.g. broken powerlaw) this can deviate
@@ -53,12 +74,13 @@ class IMFPopulation(ZeroAgePopulation):
         """
         imf = imf or cls.imf  # default if None
         n_stars = int(total_mass.to_value(u.solMass) / imf.expect())
-        return cls(n_stars, imf)
+        return cls(n_stars, imf, rng_seed=rng_seed)
 
     def sample_imf(self) -> u.Quantity[u.solMass]:
-        urng = np.random.default_rng()
-        rng = NumericalInversePolynomial(self.imf, center=0.1, random_state=urng)
-        return rng.rvs(self._n_stars).round(3) * u.solMass
+        sampler = NumericalInversePolynomial(
+            self.imf, center=0.1, random_state=self._new_rng()
+        )
+        return sampler.rvs(self._n_stars).round(3) * u.solMass
 
     def _masses_to_brightness(self, masses, absmag_col: str):
         absmags = (
