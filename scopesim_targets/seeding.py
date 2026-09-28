@@ -41,6 +41,9 @@ STREAMS: dict[str, int] = {
     "population": 0,
     "morphology": 1,
     "extinction": 2,
+    "count": 3,  # Poisson star counts (random star fields)
+    "magnitudes": 4,  # per-star magnitudes (random star fields)
+    "spectra": 5,  # per-star spectrum choice (random star fields)
 }
 """Named child streams of a master seed (index = SeedSequence spawn key)."""
 

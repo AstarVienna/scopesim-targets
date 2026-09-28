@@ -57,6 +57,9 @@ class TestStreams:
         assert STREAMS["population"] == 0
         assert STREAMS["morphology"] == 1
         assert STREAMS["extinction"] == 2
+        assert STREAMS["count"] == 3
+        assert STREAMS["magnitudes"] == 4
+        assert STREAMS["spectra"] == 5
         assert len(set(STREAMS.values())) == len(STREAMS)
 
     def test_equals_spawned_children(self):
