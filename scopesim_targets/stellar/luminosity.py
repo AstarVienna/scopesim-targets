@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Magnitude distributions (luminosity functions) for star fields."""
 
-from numbers import Integral
-
 import numpy as np
 from scipy import stats
 
@@ -48,22 +46,20 @@ def sample_magnitudes(
     ``m_min + T``. ``slope=0`` is degenerate for ``truncexpon`` and uses
     ``uniform``.
     """
-    if not isinstance(n_stars, Integral) or isinstance(n_stars, bool):
-        raise TypeError(f"n_stars must be an int, got {n_stars!r}")
+    n_stars = int(n_stars)
     if n_stars < 0:
         raise ValueError(f"n_stars must be non-negative, got {n_stars}")
     m_min, m_max = sorted(float(m) for m in mag_range)
-    if not m_min < m_max:
-        raise ValueError(f"mag_range must have two distinct limits, got {mag_range!r}")
-    if not np.isfinite(slope):
-        raise ValueError(f"slope must be finite, got {slope!r}")
+    interval = m_max - m_min
 
-    width = m_max - m_min
+    if interval == 0:
+        raise ValueError(f"mag_range must have two distinct limits, got {mag_range!r}")
+
     if slope == 0:
-        return stats.uniform(loc=m_min, scale=width).rvs(n_stars, random_state=rng)
+        return stats.uniform(loc=m_min, scale=interval).rvs(n_stars, random_state=rng)
 
     rate = abs(slope) * np.log(10)  # 10**(slope * m) == exp(slope ln10 * m)
-    offsets = stats.truncexpon(b=rate * width, scale=1 / rate).rvs(
+    offsets = stats.truncexpon(b=rate * interval, scale=1 / rate).rvs(
         n_stars, random_state=rng
     )
     return m_max - offsets if slope > 0 else m_min + offsets

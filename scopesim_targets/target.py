@@ -648,4 +648,6 @@ def length_angle_equivalency(distance: Distance | u.Quantity[u.pc]):
 # TODO: docstring
 # TODO: better name??
 def length_angle_context(distance: Distance | u.Quantity[u.pc]):
+    if distance.unit == u.Unit(1):  # dimensionless, no distance set
+        return u.set_enabled_equivalencies([])  # no-op
     return u.set_enabled_equivalencies(length_angle_equivalency(distance))

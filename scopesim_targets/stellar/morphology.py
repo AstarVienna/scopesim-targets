@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """Star cluster and star field morphologies."""
 
-from numbers import Integral
-
 import numpy as np
+from numpy.typing import NDArray
 from scipy.stats.sampling import NumericalInversePolynomial
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
@@ -37,34 +36,16 @@ class SphericallySymmetricalMorphology(Morphology):
         return Angle(rng.uniform(-np.pi, np.pi, self._n_stars) * u.rad)
 
 
-def _to_arcsec(value, parent_position: SkyCoord) -> float:
-    """Angle [arcsec] of an angular or (with a distance) length Quantity.
-
-    Plain numbers are arcsec. Lengths need `parent_position` to have a
-    distance, and are converted at that distance.
-    """
-    value = value if isinstance(value, u.Quantity) else value * u.arcsec
-    if value.unit.physical_type == "angle":
-        return value.to_value(u.arcsec)
-    distance = parent_position.distance
-    if distance.unit.physical_type != "length":
-        raise ValueError(
-            f"{value} is a length; converting it to an angle needs a field "
-            "center position with a distance"
-        )
-    with length_angle_context(distance):
-        return value.to_value(u.arcsec)
-
-
 def rectangle_area_outside_circle(
     width: float, height: float, radius: float
 ) -> float:
-    """Area of a rectangle minus a circle, both centered on the origin.
+    """Area of a rectangle minus a circle, both centered on the origin."""
+    if any(isinstance(arg, u.Quantity) for arg in (width, height, radius)):
+        unit = radius.unit  # radius wins
+        width = (width << unit).value
+        height = (height << unit).value
+        radius = radius.value
 
-    Exact (analytic), for any radius: also when the circle reaches past the
-    edges or covers the whole rectangle (area 0). All inputs in the same
-    unit; the result is in that unit squared.
-    """
     half_w, half_h, radius = width / 2, height / 2, max(radius, 0.0)
 
     def _quarter_disc_primitive(x):
@@ -76,6 +57,7 @@ def rectangle_area_outside_circle(
 
     if radius == 0:
         return width * height
+
     # One quadrant of the overlap: integral of min(half_h, sqrt(r^2 - x^2))
     # over [0, min(half_w, r)]; the circle is above half_h for x < x_cap.
     x_cap = min(np.sqrt(max(radius**2 - half_h**2, 0.0)), half_w)
@@ -114,8 +96,7 @@ class UniformRectangularMorphology(Morphology):
         exclude_radius=None,
         rng_seed: SeedLike = None,
     ):
-        if not isinstance(n_stars, Integral) or isinstance(n_stars, bool):
-            raise TypeError(f"n_stars must be an int, got {n_stars!r}")
+        n_stars = int(n_stars)
         if n_stars < 0:
             raise ValueError(f"n_stars must be non-negative, got {n_stars}")
         super().__init__(n_stars=int(n_stars), rng_seed=rng_seed)
@@ -124,48 +105,57 @@ class UniformRectangularMorphology(Morphology):
             size = (size, size)
         if len(size) != 2:
             raise ValueError(f"size must be a scalar or (width, height), got {size!r}")
+
         self.size = tuple(size)
         self.exclude_radius = exclude_radius
 
     def extent_arcsec(self, parent_position: SkyCoord) -> tuple[float, float, float]:
         """Width, height and exclusion radius [arcsec] at the parent."""
-        width, height = (_to_arcsec(side, parent_position) for side in self.size)
+        with length_angle_context(parent_position.distance):
+            width, height = ((side << u.arcsec) for side in self.size)
+
         if not (width > 0 and height > 0):
             raise ValueError(f"size must be positive, got {self.size!r}")
-        radius = (
-            0.0 if self.exclude_radius is None
-            else _to_arcsec(self.exclude_radius, parent_position)
-        )
+
+        if self.exclude_radius is None:
+            radius = 0.0 * u.arcsec
+        else:
+            radius = self.exclude_radius
+
+        with length_angle_context(parent_position.distance):
+            radius <<= u.arcsec
+
         if radius < 0:
             raise ValueError(
-                f"exclude_radius must be non-negative, got {self.exclude_radius!r}"
+                "exclude_radius must be non-negative, "
+                f"got {self.exclude_radius!r}"
             )
         return width, height, radius
 
-    def area(self, parent_position: SkyCoord) -> u.Quantity:
+    def area(self, parent_position: SkyCoord) -> u.Quantity[u.arcsec**2]:
         """Area stars can occupy (rectangle minus exclusion) [arcsec2]."""
-        width, height, radius = self.extent_arcsec(parent_position)
-        return rectangle_area_outside_circle(width, height, radius) * u.arcsec**2
+        area = rectangle_area_outside_circle(
+            *self.extent_arcsec(parent_position)
+        ) << u.arcsec**2
+        return area
 
-    def sample(self, parent_position: SkyCoord) -> tuple[np.ndarray, np.ndarray]:
+    def sample(self, parent_position: SkyCoord) -> tuple[NDArray, NDArray]:
         """Offsets from the parent position ``(x_arcsec, y_arcsec)``."""
         width, height, radius = self.extent_arcsec(parent_position)
-        if (
-            self._n_stars
-            and rectangle_area_outside_circle(width, height, radius) <= 0
-        ):
+        if self._n_stars and self.area(parent_position) <= 0*u.arcsec**2:
             raise ValueError("exclude_radius covers the whole rectangle")
 
         rng = self._new_rng()
-        low, high = (-width / 2, -height / 2), (width / 2, height / 2)
-        if radius == 0:
+        low = -width.value / 2, -height.value / 2
+        high = width.value / 2, height.value / 2
+        if radius == 0*u.arcsec:
             xy = rng.uniform(low, high, size=(self._n_stars, 2))
         else:
             # Rejection sampling in deterministic batches (same rng stream).
             acceptance = (
                 rectangle_area_outside_circle(width, height, radius)
                 / (width * height)
-            )
+            ).value
             kept = []
             n_kept = 0
             while n_kept < self._n_stars:
@@ -173,14 +163,14 @@ class UniformRectangularMorphology(Morphology):
                     int(np.ceil(1.1 * (self._n_stars - n_kept) / acceptance)), 16
                 )
                 batch = rng.uniform(low, high, size=(n_draw, 2))
-                batch = batch[np.hypot(batch[:, 0], batch[:, 1]) >= radius]
+                batch = batch[np.hypot(batch[:, 0], batch[:, 1]) >= radius.value]
                 kept.append(batch)
                 n_kept += len(batch)
             xy = np.concatenate(kept)[: self._n_stars]
 
         return xy[:, 0].round(6), xy[:, 1].round(6)
 
-    def to_source_columns(self, parent_position):
+    def to_source_columns(self, parent_position: SkyCoord) -> dict:
         x_arcsec, y_arcsec = self.sample(parent_position)
         return {"x": x_arcsec, "y": y_arcsec}
 

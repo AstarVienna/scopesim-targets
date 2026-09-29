@@ -46,13 +46,7 @@ def test_zero_stars():
 
 @pytest.mark.parametrize(
     ("args", "exc"),
-    (
-        ((5, (15, 15), 0.3), ValueError),
-        ((5, (15, 22), np.inf), ValueError),
-        ((-1, (15, 22), 0.3), ValueError),
-        ((2.5, (15, 22), 0.3), TypeError),
-        ((True, (15, 22), 0.3), TypeError),
-    ),
+    (((5, (15, 15), 0.3), ValueError), ((-1, (15, 22), 0.3), ValueError)),
 )
 def test_invalid(args, exc):
     with pytest.raises(exc):
