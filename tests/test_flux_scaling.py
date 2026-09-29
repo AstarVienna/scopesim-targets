@@ -24,7 +24,11 @@ from scopesim_targets.brightness import (
     PhotometricSystem,
     BrightnessError,
 )
-from scopesim_targets.flux_scaling import synphot_flux_scale
+from scopesim_targets.flux_scaling import (
+    synphot_flux_scale,
+    scale_group_key,
+    amount_ratio,
+)
 
 
 @pytest.fixture
@@ -163,3 +167,57 @@ class TestGuards:
         b = parse_brightness(("K", 3.5*u.mJy))
         with pytest.raises(ValueError):
             synphot_flux_scale(flat_spec, b, band=None)
+
+
+class TestGroupedScaling:
+    """One photometry per group + closed-form ratio == per-amount photometry."""
+
+    @pytest.mark.parametrize("reference, other", [
+        (("R", 15*u.mag), ("R", 17.3*u.mag)),  # Vega
+        (("R", "10.5 mag(AB)"), ("R", "8 mag(AB)")),
+        (("R", "18 mag(ST)"), ("R", "21 mag(ST)")),
+        (("K", 3.5*u.mJy), ("K", 0.2*u.Jy)),  # unit may differ within a group
+        (("V", 2e-15*u.W/u.m**2), ("V", 7e-16*u.W/u.m**2)),
+        ((656.3*u.nm, "1e-16 erg / (s cm2 Angstrom)"),
+         (656.3*u.nm, "4e-16 erg / (s cm2 Angstrom)")),
+        (("230 GHz", "5 mJy"), ("230 GHz", "1 Jy")),
+    ])
+    def test_ratio_reproduces_direct_scale(
+        self, reference, other, flat_spec, band, vega
+    ):
+        ref, oth = parse_brightness(reference), parse_brightness(other)
+        assert scale_group_key(ref) == scale_group_key(oth)
+        kwargs = {}
+        if ref.locator_kind is LocatorKind.BAND:
+            kwargs["band"] = band
+        if ref.amount_kind is AmountKind.MAG:
+            kwargs["vegaspec"] = vega
+        direct = synphot_flux_scale(flat_spec, oth, **kwargs)
+        derived = synphot_flux_scale(flat_spec, ref, **kwargs) * amount_ratio(
+            oth, ref
+        )
+        npt.assert_allclose(derived, direct, rtol=1e-10)
+
+    @pytest.mark.parametrize("first, second", [
+        (("R", "15 mag"), ("R", "15 mag(AB)")),  # system
+        (("R", "15 mag"), ("V", "15 mag")),  # band
+        (("K", "3.5 mJy"), ("K", "15 mag")),  # amount kind
+        (("K", "3.5 mJy"), ("K", "3.5 mJy / sr")),  # solid angle
+        (("656.3 nm", "5 mJy"), ("656.4 nm", "5 mJy")),  # wavelength
+        (("656.3 nm", "5 mJy"), ("230 GHz", "5 mJy")),  # locator kind
+    ])
+    def test_different_groups(self, first, second):
+        a, b = parse_brightness(first), parse_brightness(second)
+        assert scale_group_key(a) != scale_group_key(b)
+        with pytest.raises(ValueError, match="same scale_group_key"):
+            amount_ratio(a, b)
+
+    def test_key_hashable_with_quantity_locator(self):
+        key = scale_group_key(parse_brightness((656.3*u.nm, "5 mJy")))
+        assert {key: 1}[key] == 1
+
+    def test_mag_ratio_closed_form(self):
+        ratio = amount_ratio(
+            parse_brightness(("V", 17.5)), parse_brightness(("V", 15))
+        )
+        npt.assert_allclose(ratio, 0.1, rtol=1e-12)

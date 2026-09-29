@@ -7,6 +7,7 @@ The load-time band-vocabulary check and the synphot scaling live on
 """
 
 import pytest
+import numpy as np
 import astropy.units as u
 from synphot.units import VEGAMAG
 
@@ -19,6 +20,8 @@ from scopesim_targets.brightness import (
     AnchorFrame,
     FromSpectralType,
     BrightnessError,
+    is_brightness_spec,
+    is_single_brightness,
     solid_angle_unit,
 )
 
@@ -241,3 +244,59 @@ class TestFromSpectralTypeMarker:
         with pytest.raises(BrightnessError) as exc:
             parse_brightness({"from_spectral_type": "mamajek", "value": 10})
         assert exc.value.code == "E2"
+
+
+class TestIsBrightnessSpec:
+    """Structural full-spec vs bare-amount split (shared by Binary/StarField)."""
+
+    @pytest.mark.parametrize("spec", [
+        ("R", 15),
+        ["R", "15 mag"],
+        ("230 GHz", "5 mJy"),
+        (656.3*u.nm, 5*u.mJy),
+        {"band": "V", "value": 15},
+        {"from_spectral_type": "mamajek"},
+    ])
+    def test_full_specs(self, spec):
+        assert is_brightness_spec(spec)
+
+    @pytest.mark.parametrize("amount", [
+        15,
+        15.5,
+        np.float64(15),  # what iterating a numpy array of mags yields
+        "15 mag",  # a str is a Sequence, but never a spec
+        "3.5 mJy",
+        15*u.mag,
+        3.5*u.mJy,
+    ])
+    def test_bare_amounts(self, amount):
+        assert not is_brightness_spec(amount)
+
+
+class TestIsSingleBrightness:
+    """One brightness vs a sequence of per-item entries."""
+
+    @pytest.mark.parametrize("single", [
+        15,
+        "15 mag",
+        15*u.mag,
+        {"band": "V", "value": 15},
+        ("V", 15),  # pair: first item is a band
+        ["656.3 nm", "5 mJy"],  # pair: first item is a wavelength
+        (230*u.GHz, "5 mJy"),
+    ])
+    def test_single(self, single):
+        assert is_single_brightness(single)
+
+    @pytest.mark.parametrize("per_item", [
+        [15, 16],  # length 2, but 15 is no locator
+        ["15 mag", "16 mag"],
+        np.array([15., 16.]),
+        [15, 16]*u.mag,
+        [("R", 15), ("V", 16)],
+        (("R", 15), ("V", 16)),
+        [[15, 16], [17, 18]],
+        ("V", 15, 16),
+    ])
+    def test_per_item(self, per_item):
+        assert not is_single_brightness(per_item)

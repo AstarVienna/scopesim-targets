@@ -19,7 +19,7 @@ from scopesim_targets.brightness import (
     FromSpectralType,
 )
 from scopesim_targets.point_source import Star
-from scopesim_targets.target import Target, SpectrumTarget
+from scopesim_targets.target import Target, SpectrumTarget, _passband
 
 
 @pytest.fixture(scope="function")
@@ -274,6 +274,47 @@ class TestAnchorScaling:
         assert t._anchored_spectrum_scale(None, t.brightness) == 3.0
         t.anchor = "intrinsic"
         assert t._anchored_spectrum_scale(None, t.brightness) == 3.0
+
+
+class TestBatchedAnchoredScales:
+    """``_anchored_spectrum_scales``: grouped photometry, same result."""
+
+    def test_absolute_anchor_factor_carried_through_groups(
+        self, spectrum_target_subcls, monkeypatch
+    ):
+        # Stub the photometry with its closed form (flat reference at 0 mag)
+        # and count calls: one per group, distance factor on every member.
+        calls = []
+
+        def closed_form(spectrum, brightness):
+            calls.append(brightness)
+            return 10 ** (-0.4 * brightness.value.to_value(u.mag))
+
+        monkeypatch.setattr(
+            type(spectrum_target_subcls),
+            "_get_spectrum_scale",
+            staticmethod(closed_form),
+        )
+        t = spectrum_target_subcls
+        t._brightness = parse_brightness(("V", "4 mag(AB)"))  # E11 guard reads it
+        t.anchor = "absolute"
+        t.position = {"distance": 25 * u.pc}
+        mags = [4.0, 5.0, 7.5]
+        scales = t._anchored_spectrum_scales(
+            None, [parse_brightness(("V", f"{m} mag(AB)")) for m in mags]
+        )
+        npt.assert_allclose(
+            scales, [0.16 * 10 ** (-0.4 * m) for m in mags], rtol=1e-12
+        )
+        assert len(calls) == 1
+
+    def test_empty(self, spectrum_target_subcls):
+        assert spectrum_target_subcls._anchored_spectrum_scales(None, []) == []
+
+
+@pytest.mark.webtest
+def test_passband_is_cached():
+    assert _passband("V") is _passband("V")
 
 
 class TestFromSpectralTypeResolver:

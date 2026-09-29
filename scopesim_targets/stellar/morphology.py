@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Star cluster morphologies."""
+"""Star cluster and star field morphologies."""
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.stats.sampling import NumericalInversePolynomial
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Angle
@@ -33,6 +34,145 @@ class Morphology:
 class SphericallySymmetricalMorphology(Morphology):
     def _sample_phi(self, rng: np.random.Generator) -> Angle:
         return Angle(rng.uniform(-np.pi, np.pi, self._n_stars) * u.rad)
+
+
+def rectangle_area_outside_circle(
+    width: float, height: float, radius: float
+) -> float:
+    """Area of a rectangle minus a circle, both centered on the origin."""
+    if any(isinstance(arg, u.Quantity) for arg in (width, height, radius)):
+        unit = radius.unit  # radius wins
+        width = (width << unit).value
+        height = (height << unit).value
+        radius = radius.value
+
+    half_w, half_h, radius = width / 2, height / 2, max(radius, 0.0)
+
+    def _quarter_disc_primitive(x):
+        # integral of sqrt(r^2 - x^2) dx
+        return 0.5 * (
+            x * np.sqrt(max(radius**2 - x**2, 0.0))
+            + radius**2 * np.arcsin(min(x / radius, 1.0))
+        )
+
+    if radius == 0:
+        return width * height
+
+    # One quadrant of the overlap: integral of min(half_h, sqrt(r^2 - x^2))
+    # over [0, min(half_w, r)]; the circle is above half_h for x < x_cap.
+    x_cap = min(np.sqrt(max(radius**2 - half_h**2, 0.0)), half_w)
+    x_end = min(radius, half_w)
+    quadrant = half_h * x_cap + (
+        _quarter_disc_primitive(x_end) - _quarter_disc_primitive(x_cap)
+    )
+    return max(width * height - 4 * quadrant, 0.0)
+
+
+class UniformRectangularMorphology(Morphology):
+    """Stars spread uniformly over a rectangle, optionally with a hole.
+
+    The rectangle is centered on the parent position, with sides parallel to
+    x (East) and y (North). An optional exclusion radius keeps the central
+    circle free, e.g. around a science target. `n_stars` is exact: positions
+    in the excluded circle are redrawn.
+
+    Parameters
+    ----------
+    n_stars : int
+        Number of stars (0 is allowed).
+    size : float, Quantity or (width, height)
+        Rectangle extent; a scalar gives a square. Plain numbers are arcsec;
+        lengths are converted at the parent's distance when sampling.
+    exclude_radius : float or Quantity, optional
+        Radius of the central circle kept free of stars.
+    rng_seed : optional
+        See :class:`Morphology`.
+    """
+
+    def __init__(
+        self,
+        n_stars: int,
+        size,
+        exclude_radius=None,
+        rng_seed: SeedLike = None,
+    ):
+        n_stars = int(n_stars)
+        if n_stars < 0:
+            raise ValueError(f"n_stars must be non-negative, got {n_stars}")
+        super().__init__(n_stars=int(n_stars), rng_seed=rng_seed)
+
+        if np.ndim(size) == 0:
+            size = (size, size)
+        if len(size) != 2:
+            raise ValueError(f"size must be a scalar or (width, height), got {size!r}")
+
+        self.size = tuple(size)
+        self.exclude_radius = exclude_radius
+
+    def extent_arcsec(self, parent_position: SkyCoord) -> tuple[float, float, float]:
+        """Width, height and exclusion radius [arcsec] at the parent."""
+        with length_angle_context(parent_position.distance):
+            width, height = ((side << u.arcsec) for side in self.size)
+
+        if not (width > 0 and height > 0):
+            raise ValueError(f"size must be positive, got {self.size!r}")
+
+        if self.exclude_radius is None:
+            radius = 0.0 * u.arcsec
+        else:
+            radius = self.exclude_radius
+
+        with length_angle_context(parent_position.distance):
+            radius <<= u.arcsec
+
+        if radius < 0:
+            raise ValueError(
+                "exclude_radius must be non-negative, "
+                f"got {self.exclude_radius!r}"
+            )
+        return width, height, radius
+
+    def area(self, parent_position: SkyCoord) -> u.Quantity[u.arcsec**2]:
+        """Area stars can occupy (rectangle minus exclusion) [arcsec2]."""
+        area = rectangle_area_outside_circle(
+            *self.extent_arcsec(parent_position)
+        ) << u.arcsec**2
+        return area
+
+    def sample(self, parent_position: SkyCoord) -> tuple[NDArray, NDArray]:
+        """Offsets from the parent position ``(x_arcsec, y_arcsec)``."""
+        width, height, radius = self.extent_arcsec(parent_position)
+        if self._n_stars and self.area(parent_position) <= 0*u.arcsec**2:
+            raise ValueError("exclude_radius covers the whole rectangle")
+
+        rng = self._new_rng()
+        low = -width.value / 2, -height.value / 2
+        high = width.value / 2, height.value / 2
+        if radius == 0*u.arcsec:
+            xy = rng.uniform(low, high, size=(self._n_stars, 2))
+        else:
+            # Rejection sampling in deterministic batches (same rng stream).
+            acceptance = (
+                rectangle_area_outside_circle(width, height, radius)
+                / (width * height)
+            ).value
+            kept = []
+            n_kept = 0
+            while n_kept < self._n_stars:
+                n_draw = max(
+                    int(np.ceil(1.1 * (self._n_stars - n_kept) / acceptance)), 16
+                )
+                batch = rng.uniform(low, high, size=(n_draw, 2))
+                batch = batch[np.hypot(batch[:, 0], batch[:, 1]) >= radius.value]
+                kept.append(batch)
+                n_kept += len(batch)
+            xy = np.concatenate(kept)[: self._n_stars]
+
+        return xy[:, 0].round(6), xy[:, 1].round(6)
+
+    def to_source_columns(self, parent_position: SkyCoord) -> dict:
+        x_arcsec, y_arcsec = self.sample(parent_position)
+        return {"x": x_arcsec, "y": y_arcsec}
 
 
 class KingProfileMorphology(SphericallySymmetricalMorphology):
