@@ -474,16 +474,11 @@ grid = {"pixel_scale": 1*u.arcsec/u.pixel, "width": 8, "height": 8}
 sim_8 = setup_sim(grid, props={"!SIM.sub_pixel.flag": True})
 src_box = box_total.to_source(grid)
 
-# TODO: make these lists dynamic
-pxposx = [-2.5, -1.5, -.5, .5, 1.5, 2.5]
-pxposy = [-1.5, -.5, .5, 1.5]
-xs, ys = np.meshgrid(pxposx, pxposy)
-
-src_24stars = StarField(
+src_24stars = StarField.from_grid(
+    (6, 4), 1,
+    spectra=flat_spec,
+    brightnesses=TOTAL_FLUX / 24,
     band="V",
-    positions=[(x, y) for x, y in zip(xs.flatten(), ys.flatten())],
-    spectra=24*[flat_spec],
-    brightnesses=24*[TOTAL_FLUX/24]
 ).to_source()
 
 img_box = detected(sim_8, src_box)
