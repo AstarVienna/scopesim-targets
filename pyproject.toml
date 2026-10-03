@@ -17,6 +17,8 @@ dependencies = [
     "pooch (>=1.9.0,<2.0.0)",
 
     "synphot (>=1.7.0,<2.0.0)",
+    "dust-extinction (>=1.7,<2.0)",
+    "dust-attenuation @ git+https://github.com/karllark/dust_attenuation.git",
     "astar-utils (>=0.6.0)",
     "spextra (>=0.44.0)",
 ]
