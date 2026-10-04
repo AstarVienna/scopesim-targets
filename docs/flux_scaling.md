@@ -479,12 +479,17 @@ we have to scale each pixel by its contribution to the total.
 This can be expressed in terms of "area":
 
 ```{math}
-w_{ij} \;=\; \frac{\Omega}{P} \: p(x_i, y_j)
+:label: wij
+
+w_{ij} \;=\; \frac{\Omega}{A_\mathrm{eff}} \: p(x_i, y_j)
 ```
 
-```{TODO}
-{math}`A_\mathrm{eff}` here??
-```
+Here {math}`A_\mathrm{eff}` is the **effective area** that the spectrum's flux corresponds to.
+For every profile with a closed-form total it is simply that total, so {math}`A_\mathrm{eff} = P`.
+Profiles without one need a different definition, which we derive in the section on non-integrable profiles below.
+Either way, the same {math}`A_\mathrm{eff}` that normalizes the weightmap also sets the flux of the spectrum,
+so it cancels in their product: the flux landing in a pixel, {math}`w_{ij}\,F`, does not depend on the choice of {math}`A_\mathrm{eff}`.
+What {math}`A_\mathrm{eff}` decides is only how the total is _split_ between the weightmap sum and the spectrum.
 
 For a finite profile (e.g. `Box`) fully within the field-of-view,
 this will result in {math}`\sum_{ij} w_{ij} = 1.0`, ignoring any floating point imprecisions.
@@ -572,7 +577,7 @@ P\:=\:\iint_{-\infty}^{\infty} C\,\mathrm{d}x\,\mathrm{d}y \;\rightarrow\;\infty
 We can solve this by using the field-of-view that the profile is rasterized onto as the limits for our integration,
 in other words the rendered field-of-view closes the otherwise open integral.
 This is a very practical solution, because any flux outside of it is lost to the simulation anyway.
-Using the same nomenclature as above and calling the result an "effective area" {math}`A_\mathrm{eff}` instead of {math}`P`,
+Using the same nomenclature as above and calling the result {math}`A_\mathrm{eff}` as in eq. {eq}`wij`, since there is no {math}`P` here,
 a window of width {math}`W=n_\mathrm{pix, x}\varpi` and height {math}`H=n_\mathrm{pix, y}\varpi` results in integration limits of:
 
 ```{math}
@@ -604,6 +609,19 @@ We can also write the same total using the detector pixel scale and number of pi
 A_\mathrm{eff} \:=\: \Omega\,N \:=\: A_\mathrm{FOV}.
 ```
 
+The simplification to {math}`W\,H` only works because {math}`C` is constant.
+For a non-integrable profile with spatial structure (e.g. a power law),
+the field-of-view still closes the integral, but over the profile itself:
+
+```{math}
+:label: aefffov
+
+A_\mathrm{eff} \:=\: \iint_\mathrm{FOV} p(x, y)\,\mathrm{d}x\,\mathrm{d}y \:\approx\: \Omega \sum_{ij} p(x_i, y_j)
+```
+
+Inserting this into eq. {eq}`wij` gives {math}`\sum_{ij} w_{ij} = 1` exactly, for any profile shape,
+and the `Flat` result {math}`\Omega\,N` is just the special case {math}`p \equiv 1`.
+
 This makes it a bit easier to conceptualize how the "total flux" of a `Flat` is calculated,
 i.e. what the brightness stored in the spectrum corresponds to, which is simply what falls into the field-of-view.
 It also means the weightmap image of a `Flat` will always sum to 1.
@@ -632,7 +650,7 @@ For better or worse, astronomers like to give surface brightnesses in units of m
 We should pause for a moment to see how that's dealt with:
 Because Astropy cannot directly parse such units if they come in a system other than plain "mag", e.g. ABmag,
 such quantities can only be given as a string, e.g. `"20 mag(AB) / arcsec2"`.
-These are converted to linear units before they even hit the `Target` constructor, using this formula:
+These are converted to linear units during the concretization step, using this formula:
 
 \begin{equation}
 m = m_\mathrm{SB} - 2.5 \log_{10} \frac{A_\mathrm{eff}}{\Omega_m}
@@ -718,7 +736,7 @@ df.sort_index(ascending=False).style.format({
 
 We can see that the two `Box` targets behave identically on both pixel grids.
 Both scale their spectrum to the same intrinsic total {math}`A_\mathrm{eff}`,
-and in both cases only the central quarter (4 × 4 out of 16 × 16) of the weightmap ends up inside the field-of-view,
+and in both cases only the central quarter (8 × 8 out of 16 × 16) of the weightmap ends up inside the field-of-view,
 correctly resulting in {math}`\sum_{ij} w_{ij} = 0.25` on the finer grid.
 The `Flat` on the other hand always sums to {math}`\sum_{ij} w_{ij} = 1.0` and rescales the spectrum instead,
 and we can see that is where the factor of 0.25 ends up instead for the finer grid.
