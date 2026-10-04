@@ -11,6 +11,8 @@ from scipy.special import gamma, gammaincinv
 from astropy import units as u
 from astropy.io import fits
 from astropy.wcs import WCS
+from astropy.coordinates import Distance
+from astropy.modeling import Fittable2DModel, Parameter
 from astropy.modeling.functional_models import (
     GeneralSersic2D,
     Gaussian2D,
@@ -24,7 +26,7 @@ from scopesim import Source
 from scopesim.source.source_fields import ImageSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
-from .target import SpectrumTarget
+from .target import SpectrumTarget, length_angle_context
 from .brightness import BrightnessError, AmountKind, Brightness
 
 
@@ -36,6 +38,42 @@ def _as_arcsec(param) -> u.Quantity:
     """
     unit = param.unit if param.unit is not None else u.arcsec
     return (param.value * unit).to(u.arcsec)
+
+
+class CoredPowerLaw2D(Fittable2DModel):
+    """Circular cored power law, normalized to ``amplitude`` at ``r_ref``.
+
+    .. math::
+
+        I(r) = A \\left[\\frac{1 + (r/r_c)^2}{1 + (r_{ref}/r_c)^2}\\right]^{-p/2}
+
+    Flat (``I ~ const``) inside the core radius ``r_c``, falling as
+    ``r**-p`` outside it. ``amplitude`` is the surface brightness *at*
+    ``r_ref`` -- not at the peak -- so a brightness measured at a known
+    distance from the illuminating source can be used directly. ``p = 0``
+    degenerates to a constant (cf. :class:`Flat`). Same functional family as
+    ``Moffat2D`` (``p = 2 alpha``, ``r_c = gamma``), reparametrized so the
+    power-law index and the reference point are explicit.
+
+    ``r_out`` (default ``inf``) truncates the profile: ``I = 0`` for
+    ``r > r_out``. The normalization at ``r_ref`` is that of the untruncated
+    law, so truncation never changes the surface brightness inside ``r_out``.
+    """
+
+    amplitude = Parameter(default=1.0)
+    x_0 = Parameter(default=0.0)
+    y_0 = Parameter(default=0.0)
+    r_core = Parameter(default=1.0)
+    index = Parameter(default=2.0)
+    r_ref = Parameter(default=0.0)
+    r_out = Parameter(default=np.inf)
+
+    @staticmethod
+    def evaluate(x, y, amplitude, x_0, y_0, r_core, index, r_ref, r_out):
+        d2 = (x - x_0) ** 2 + (y - y_0) ** 2
+        ref = 1.0 + (r_ref / r_core) ** 2
+        prof = amplitude * ((1.0 + d2 / r_core**2) / ref) ** (-index / 2.0)
+        return np.where(d2 <= r_out**2, prof, 0.0)
 
 
 class ExtendedSourceTarget(SpectrumTarget):
@@ -164,7 +202,7 @@ class BrightnessProfile(ParametrizedTarget):
     }
 
     @staticmethod
-    def _coerce_param(key: str, value):
+    def _coerce_param(key: str, value, distance: Distance | None = None):
         """Normalize a param to the bare arcsec render space.
 
         Lengths/on-sky angles -> arcsec value; the rotation angle ``theta`` ->
@@ -179,6 +217,11 @@ class BrightnessProfile(ParametrizedTarget):
             return value.to_value(u.rad)
         if value.unit.physical_type == "angle":
             return value.to_value(u.arcsec)
+        if value.unit.physical_type == "length":
+            if distance is None:
+                raise ValueError(f"Physical length for {key} needs distance.")
+            with length_angle_context(distance):
+                return value.to_value(u.arcsec)
         return value.value
 
     def __init__(
@@ -201,8 +244,15 @@ class BrightnessProfile(ParametrizedTarget):
         if extinction is not None:
             self.extinction = extinction
 
+        distance = None
+        if (pos := getattr(self, "position", None)) is not None and \
+            pos.distance.unit.physical_type == "length":
+            distance = pos.distance
+        # FIXME: This angle resolving should be move to concretization time to
+        #        also support parent_position eventually!
         params = {
-            k: self._coerce_param(k, v) for k, v in dict(params or {}).items()
+            k: self._coerce_param(k, v, distance)
+            for k, v in dict(params or {}).items()
         }
         self._validate_params(params)
         # Amplitude is internal, never user-supplied: unit amplitude here, so the
@@ -246,22 +296,31 @@ class BrightnessProfile(ParametrizedTarget):
         flux carried by the spectrum, and that normalizes the weight map.
 
         For a finite-total profile this is the intrinsic analytic total
-        (:meth:`total_flux_factor`, field-of-view independent). Non-integrable
-        profiles (:class:`Flat`, untruncated power laws) have no intrinsic
-        total, so they override this with the *rendered* field of view
-        (``Omega_pixel * N_pixels``) -- the FOV closes the open integral, giving
-        a legitimately FOV-dependent total. Everything downstream (weight map,
-        surface-brightness reduction) is identical; only this area differs.
+        ``P`` (:meth:`total_flux_factor`, field-of-view independent).
+        Non-integrable profiles (:class:`Flat`, power laws with index <= 2)
+        have no intrinsic total; the rendered field of view closes the open
+        integral, ``A_eff = int_FOV p dOmega = Omega_pixel * sum(img)``, giving
+        a legitimately FOV-dependent total. :class:`Flat` (``img == 1``) is the
+        special case ``Omega_pixel * N_pixels`` and overrides this exactly.
+        Everything downstream (weight map ``w_ij = Omega * p_ij / A_eff``,
+        surface-brightness reduction ``F = S * A_eff``) is identical; only this
+        area differs. Either way the flux landing in a pixel is
+        ``S * Omega * p_ij``.
         """
-        return self.total_flux_factor()
+        if self.has_finite_total:
+            return self.total_flux_factor()
+        img = self._render_image(optical_train)
+        return self._pixel_area(optical_train) * img.sum()
 
     def _weightmap(self, optical_train):
         """Render the analytic model as a unit-normalized weight map + header.
 
-        The image is normalized by :meth:`_effective_area` (never a grid sum):
-        for finite profiles that is the analytic total, so flux clipped by the
-        window is not redistributed; for non-integrable profiles it is the field
-        of view, giving a uniform weight map that sums to 1. Separated from
+        The image is normalized by :meth:`_effective_area`: for finite
+        profiles that is the analytic total (never a grid sum), so flux clipped
+        by the window is not redistributed; for non-integrable profiles it is
+        the profile's integral over the rendered field of view -- a grid sum by
+        definition, since nothing outside the FOV is counted -- so the weight
+        map sums to 1. Separated from
         :meth:`to_source` so the stored-artifact image is testable without a
         ScopeSim ``Source`` or a resolved spectrum. Carries no flux itself --
         the spectrum does. (E6, integrated-on-non-integrable, is a spectrum-side
@@ -541,3 +600,79 @@ class Flat(BrightnessProfile):
         # The FOV closes the open integral: A_eff = Omega_pixel * N_pixels.
         n_pixels = optical_train["width"] * optical_train["height"]
         return self._pixel_area(optical_train) * n_pixels
+
+
+class CoredPowerLaw(BrightnessProfile):
+    """Cored power-law surface brightness, ``I ~ [1 + (r/r_core)^2]^(-index/2)``.
+
+    Meant for diffuse nebular backgrounds that fall off with distance from an
+    illuminating star, e.g. the Orion Nebula, whose surface brightness falls
+    roughly as ``D**-2`` near theta1 Ori C and closer to ``D**-3`` further out
+    (O'Dell & Harris 2010). ``index = 0`` reproduces :class:`Flat`.
+
+    The surface brightness in ``brightness`` applies *at* ``r_ref`` (default 0,
+    i.e. the peak), which must lie inside ``r_out``. Finiteness depends on the
+    instance: with an outer radius ``r_out`` (e.g. matched to a cluster's tidal
+    radius) the total is always finite and FOV-independent. Untruncated
+    (``r_out = inf``, the default), the integral converges only for
+    ``index > 2``; for ``index <= 2`` the total is closed by the field of view,
+    exactly as for :class:`Flat`, and an integrated brightness is E6.
+
+    The profile center is meant to be the illuminating star, which is
+    generally *not* the field center. Until extended targets honor
+    ``position``/``offset`` in rendering, it is placed at the field center.
+    """
+
+    _model_cls = CoredPowerLaw2D
+    sb_reference = "at r_ref"
+    # Smooth for r_core >> pixel; modest oversampling keeps an unresolved
+    # core (r_core ~ pixel) pixel-integral-accurate.
+    _oversample = 4
+
+    @property
+    def has_finite_total(self) -> bool:  # instance-level: index and r_out
+        return bool(
+            np.isfinite(float(self._model.r_out.value))
+            or float(self._model.index.value) > 2.0
+        )
+
+    @classmethod
+    def _validate_params(cls, params: Mapping) -> None:
+        super()._validate_params(params)
+        if "r_core" in params and not float(params["r_core"]) > 0:
+            raise ValueError("r_core must be > 0")
+        if "index" in params and not float(params["index"]) >= 0:
+            raise ValueError("index must be >= 0 (a falling or flat profile)")
+        if "r_ref" in params and not float(params["r_ref"]) >= 0:
+            raise ValueError("r_ref must be >= 0")
+        if "r_out" in params and not float(params["r_out"]) > 0:
+            raise ValueError("r_out must be > 0")
+        if float(params.get("r_ref", 0.0)) > float(params.get("r_out", np.inf)):
+            raise ValueError(
+                "r_ref must lie inside r_out (the surface brightness would be "
+                "anchored where the profile is zero)"
+            )
+
+    def total_flux_factor(self) -> u.Quantity:
+        p = float(self._model.index.value)
+        r_out = float(self._model.r_out.value)
+        if not self.has_finite_total:
+            raise BrightnessError(
+                "E6", f"untruncated CoredPowerLaw with index={p} <= 2 has no "
+                "finite total (the integral diverges); set r_out to truncate"
+            )
+        r_c = _as_arcsec(self._model.r_core)
+        r_ref = _as_arcsec(self._model.r_ref)
+        # With u = (r/r_c)^2:  int_0^R 2 pi r [1+(r/r_c)^2]^(-p/2) dr
+        #   = pi r_c^2 G(X),  G(X) = int_0^X (1+u)^(-p/2) du,  X = (R/r_c)^2.
+        # R = inf (p > 2): G = 2/(p-2).  Finite R: G = expm1(a L)/a with
+        # a = 1 - p/2, L = log1p(X), and G = L in the p = 2 limit (a -> 0).
+        # Dividing by I(r_ref)/I(0) moves the reference: factor ref**(p/2).
+        ref = 1.0 + (r_ref / r_c).to_value(u.dimensionless_unscaled) ** 2
+        if np.isfinite(r_out):
+            x = (r_out * u.arcsec / r_c).to_value(u.dimensionless_unscaled) ** 2
+            a, ln1px = 1.0 - p / 2.0, np.log1p(x)
+            g = ln1px if abs(a * ln1px) < 1e-12 else np.expm1(a * ln1px) / a
+        else:
+            g = 2.0 / (p - 2.0)
+        return np.pi * r_c**2 * g * ref ** (p / 2.0)

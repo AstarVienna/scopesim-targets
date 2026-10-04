@@ -878,6 +878,7 @@ It can be read as "how total / surface brightness is translated" for a given pro
 | {class}`~scopesim_targets.extended_source.Gaussian` | {math}`2\pi\,\sigma_x\sigma_y`                             | peak value      |
 | {class}`~scopesim_targets.extended_source.Sersic`   | {math}`2\pi n\,e^{b_\mathrm{n}}\Gamma(2n)\,b_\mathrm{n}^{-2n}(1-\mathrm{ellip})\,R_{\mathrm{eff}}^2` <br> {math}`b_\mathrm{n}=\operatorname{gammaincinv}(2n,\,0.5)` | at {math}`R_\mathrm{eff}` |
 | {class}`~scopesim_targets.extended_source.Flat`     | no                                                         | _uniform_       |
+| {class}`~scopesim_targets.extended_source.CoredPowerLaw` | {math}`\frac{2\pi\,r_\mathrm{c}^2}{p-2}\left(1+\frac{r_\mathrm{ref}^2}{r_\mathrm{c}^2}\right)^{p/2}` for {math}`p>2`, else no | at {math}`r_\mathrm{ref}` |
 
 ### Reference point comparison
 The example below illustrates these different reference points for a `Sersic`, a `Gaussian`, and a `Box` with identical surface brightnesses and spectra.
