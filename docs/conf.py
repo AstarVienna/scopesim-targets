@@ -17,6 +17,7 @@ extensions = [
     "sphinx_copybutton",  # Adds "copy" buttons (duh) to code cells
     "myst_nb",  # For markdown parsing and MyST Notebooks
     "sphinx_issues",  # For linking GitHub issues in RTD
+    "sphinxcontrib.bibtex",  # Citations via {cite:p} and {bibliography}
 ]
 
 # Link to templates for API documentation of modules, classes etc.
@@ -53,6 +54,16 @@ source_suffix = {
 # Timeout for executing notebooks
 nb_execution_timeout = 3600  # [s]
 nb_execution_mode = "auto"  # Run those without output
+nb_execution_raise_on_error = True  # Fail the build on errors (incl. data/code consistency asserts)
+
+# Number figures and tables so that {numref} renders as "Fig. N"
+numfig = True
+
+# Bibliography for the background pages (keys match the code and FITS headers)
+bibtex_bibfiles = ["../backgrounds/references.bib"]  # relative to this file
+bibtex_reference_style = "author_year"
+# Each page has its own reference list, so shared keys are expected there
+suppress_warnings = ["bibtex.duplicate_citation"]
 
 # Design theme and config options for overall page
 html_theme = "sphinx_book_theme"
