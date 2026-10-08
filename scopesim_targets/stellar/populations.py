@@ -5,6 +5,7 @@ import numpy as np
 from scipy.stats import rv_continuous
 from scipy.stats.sampling import NumericalInversePolynomial
 from astropy import units as u
+from astropy.utils.masked import Masked
 from matplotlib import axes
 
 from astar_utils import SpectralType
@@ -80,18 +81,31 @@ class IMFPopulation(ZeroAgePopulation):
         sampler = NumericalInversePolynomial(
             self.imf, center=0.1, random_state=self._new_rng()
         )
-        return sampler.rvs(self._n_stars).round(3) * u.solMass
+        # 4 decimals (~0.1 M_Jup): with 3, brown-dwarf magnitudes shift by up
+        # to ~1.6 mag, as M_J changes steeply with mass at the Y-dwarf end.
+        return sampler.rvs(self._n_stars).round(4) * u.solMass
 
     def _masses_to_brightness(self, masses, absmag_col: str):
+        """
+        Return absolute magnitudes in `absmag_col` for `masses`, maybe masked.
+
+        Photometry is extrapolated beyond the table's data, which the most
+        massive stars need (e.g. no NIR data above O9V), but not below the
+        lowest tabulated mass (Y4V, ~25 M_Jup). Lighter objects have no
+        defined Teff and are masked; linear extrapolation would put them at
+        40 to 90 mag anyway.
+        """
         absmags = (
             self._stellar_params
             .interpolate("mass", masses, extrapolate_phot=True)[absmag_col]
-            .round(2)
         )
-        if hasattr(absmags, "mask") and not absmags.mask.any():
-            # ditch any remaining empty masks
-            return absmags.unmasked
-        return absmags
+        mask = np.asarray(getattr(absmags, "mask", False), dtype=bool)
+        mask = mask | (masses < self._stellar_params.table["mass"].min())
+        # Round the bare values: Masked.round() drops the mask (astropy 8).
+        absmags = getattr(absmags, "unmasked", absmags).round(2)
+        if not mask.any():
+            return absmags
+        return Masked(absmags, mask=mask)
 
     def _masses_to_spectra(self, masses):
         # HACK: This is to crop the stellar parameters table to only include
@@ -187,8 +201,13 @@ class IMFPopulation(ZeroAgePopulation):
         specmags = np.array([specmags_lookup[ref] for ref in specref]) << u.mag
 
         distmod = parent_position.distance.distmod
-        delta_mag = distmod + absmags - specmags
+        delta_mag = distmod + getattr(absmags, "unmasked", absmags) - specmags
         weights = (delta_mag.value * delta_mag.unit()).physical
+        # No magnitude (lighter than the lookup table): keep the star, so the
+        # realized masses and the morphology stay aligned, but without flux.
+        mask = np.asarray(getattr(absmags, "mask", False), dtype=bool)
+        weights = np.where(mask, 0.0, weights)
+        absmags = np.where(mask, np.nan, getattr(absmags, "unmasked", absmags))
 
         coldict = {
             "ref": specref,

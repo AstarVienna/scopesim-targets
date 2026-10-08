@@ -64,8 +64,11 @@ class BrokenLogNormal(rv_continuous):
 #       by other laws as well. Find out more about upper and lower bounds
 #       of each IMF before that!! Can those ("support") be set in the "freezing"
 #       step afterwards??
-# Note: Upper and lower limits set to the extrem ends of the mass range found in
-#       the Mamajek stellar parameters lookup table.
+# Note: Limits roughly span the stellar parameters lookup table (~0.024 to
+#       59 Msol). The lower limit deliberately stays at 0.01 Msol, below the
+#       table: the pdfs are normalised for this support (see the constant
+#       factors), which `expect()` and thus `from_total_mass` rely on. Lighter
+#       objects get no magnitude and zero weight in the population.
 kroupa_gen = BrokenPowerlaw(name="Kroupa02", a=0.01, b=60, momtype=0)
 chabrier_gen = LogNormal(name="Chabrier01", a=0.01, b=60)
 chabrier_broken_gen = BrokenLogNormal(name="Chabrier03", a=0.01, b=60)
