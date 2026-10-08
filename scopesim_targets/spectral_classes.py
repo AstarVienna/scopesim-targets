@@ -11,9 +11,8 @@ from dataclasses import dataclass, field
 
 from more_itertools import always_iterable
 import numpy as np
-from numpy.lib.recfunctions import structured_to_unstructured
 from scipy.spatial import KDTree
-from scipy.interpolate import PchipInterpolator, CubicSpline
+from scipy.interpolate import PchipInterpolator
 from astropy import units as u
 from astropy.modeling.models import Linear1D
 from astropy.table import Table, QTable, Row, join
@@ -25,6 +24,9 @@ from .data_utils import fetch_data_file
 
 
 _temperature_type = u.get_physical_type("temperature")
+
+#: Columns that are never extrapolated (always masked outside their data).
+_PHYSICAL_COLUMNS = frozenset({"mass", "teff", "radius"})
 
 #: Empirical Teff-mass relation for field brown dwarfs, used to fill the masses
 #: missing from the Mamajek table (L3V and later). Fitted to filtered data from
@@ -417,81 +419,170 @@ class StellarParameters:
         exclude = {"spectral_type", colname}
         return [col for col in self.table.colnames if col not in exclude]
 
-    def interpolate(self, colname: str, values: u.Quantity, extrapolate_phot: bool = False) -> QTable:
+    def interpolate(
+        self,
+        colname: str,
+        values: u.Quantity,
+        extrapolate_phot: bool = False,
+        max_extrapolation_steps: int | None = None,
+    ) -> QTable:
+        """
+        Interpolate all other columns at the given values of `colname`.
+
+        Every column is interpolated with a monotone piecewise-cubic Hermite
+        interpolant (PCHIP), which never overshoots between two table rows.
+        Missing values in a column are skipped, i.e. interpolated across.
+        Along mass, teff and radius, interpolation is done in log10 of the
+        key, where magnitudes and colors behave close to linearly; this matters
+        mostly for extrapolation.
+
+        Parameters
+        ----------
+        colname : str
+            Column to interpolate along, e.g. "mass" or "teff".
+        values : u.Quantity
+            Value(s) of `colname`, in the unit of that column.
+        extrapolate_phot : bool, optional
+            If False (default), all output columns are masked outside the
+            range where they have data. If True, photometric columns (all but
+            mass, teff and radius) are extrapolated linearly beyond their
+            data (in the interpolation coordinate, see above), using the secant
+            slope over their two outermost intervals.
+            The physical columns are never extrapolated.
+        max_extrapolation_steps : int | None, optional
+            Only used if `extrapolate_phot` is True. Limits how far a
+            photometric column is extrapolated, counted in table rows of
+            `colname` beyond the column's last row with data. Beyond the ends
+            of the table, each further step is the width of the table's
+            outermost interval. Anything further out is masked. None (default)
+            means no limit.
+
+        Returns
+        -------
+        result : QTable
+            One row per value, with masked entries where no (trustworthy)
+            value is available. Values are rounded to three decimals.
+
+        """
         # TODO: store interpolator
         # TODO: optionally supply output colnames (set intersection stuff)
         if self.table[colname].unit != values.unit:
             raise ValueError("units in values must match column")
 
-        columns = self._get_remaining_colnames(colname)
         sorted_indices, sorted_column = self._sort_col_idx(colname)
-
         if hasattr(sorted_column, "mask"):
             sorted_indices = sorted_indices[~sorted_column.mask]
             sorted_column = sorted_column[~sorted_column.mask]
+        knots = _plain_values(sorted_column)
+        search = np.atleast_1d(values.value)
+        if colname in _PHYSICAL_COLUMNS:
+            # Strictly positive, so log is safe for the knots. Non-positive
+            # search values become NaN (with a warning) and end up masked.
+            knots = np.log10(knots)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                search = np.log10(search)
 
-        # TODO: find a more efficient way to do this
-        mask = structured_to_unstructured(
-            self.table.mask[columns][sorted_indices].as_array()
-        )
-        expanded = Masked(np.repeat(sorted_column[:, None], len(columns), 1), mask=mask)
-        mins = expanded.min(axis=0)
-        maxs = expanded.max(axis=0)
-        output_mask = (
-            (np.repeat(values[:, None], len(columns), 1) < mins) |
-            (np.repeat(values[:, None], len(columns), 1) > maxs)
-        )
+        output_columns = {}
+        for name in self._get_remaining_colnames(colname):
+            column = self.table[name][sorted_indices]
+            valid = ~np.asarray(getattr(column, "mask", False), dtype=bool)
+            valid = np.broadcast_to(valid, knots.shape)
+            is_physical = name in _PHYSICAL_COLUMNS
 
-        splines = []
-        for colname in columns:
-            col = self.table[colname][sorted_indices]
-            colmask = col.mask if hasattr(col, "mask") else np.zeros_like(col.value).astype(bool)
-            if colname in ("mass", "teff", "radius"):
-                spline = PchipInterpolator(sorted_column[~colmask], col[~colmask], extrapolate=False)
+            interpolant = PchipInterpolator(
+                knots[valid],
+                _plain_values(column)[valid],
+                extrapolate=not is_physical,
+            )
+            if is_physical or not extrapolate_phot:
+                lower, upper = knots[valid][[0, -1]]
             else:
-                spline = CubicSpline(sorted_column[~colmask], col[~colmask], extrapolate=True)
-                # see https://docs.scipy.org/doc/scipy/tutorial/interpolate/extrapolation_examples.html#cubicspline-extend-the-boundary-conditions
-                # TODO: Find a better way to extrapolate that works with the (otherwise much better) PchipInterpolator, get rid of that function.
-                _add_boundary_knots(spline)
-            splines.append(spline)
+                _add_boundary_knots(
+                    interpolant,
+                    *_end_secants(knots[valid], _plain_values(column)[valid]),
+                )
+                lower, upper = _extrapolation_bounds(
+                    knots, valid, max_extrapolation_steps
+                )
 
-        # output_data = spline(mass).round(3)  # HACK: use table format instead?
-        # Output has to be Quantity BEFORE masking, otherwise QTable doesn't
-        # return quantities upon [colname]...
-        # TODO: See if this can be done more efficiently and/or robust, as the
-        #       current implementation relies on correct column order...
-        masked_output = [
-            Masked(
-                splines[i](values).round(3)*self._col_units.get(col),
-                mask=(
-                    output_mask[:, i]
-                    if col in ("mass", "teff", "radius")
-                    or not extrapolate_phot
-                    else None
-                ),
-            ) for i, col in enumerate(columns)
-        ]
-        result = QTable(
-            names=columns,
-            data=masked_output,
-        )
-        return result
+            # Output has to be Quantity BEFORE masking, otherwise QTable
+            # doesn't return quantities upon [colname]...
+            output_columns[name] = Masked(
+                interpolant(search).round(3) * self._col_units[name],
+                mask=~((search >= lower) & (search <= upper)),  # NaN -> masked
+            )
+
+        return QTable(output_columns)
 
 
-def _add_boundary_knots(spline):
+def _plain_values(column) -> np.ndarray:
+    """Return the bare values of a (possibly masked) Quantity column."""
+    return np.asarray(getattr(column, "unmasked", column).value)
+
+
+def _end_secants(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """
+    Return secant slopes over the two outermost intervals at each end.
+
+    Used for linear extrapolation instead of the interpolant's end derivative,
+    which is dominated by the last interval and can be wild if that interval
+    is very short (e.g. Y1.5V to Y2V in mass).
+
+    """
+    span = min(2, len(x) - 1)
+    return (
+        (y[span] - y[0]) / (x[span] - x[0]),
+        (y[-1] - y[-1 - span]) / (x[-1] - x[-1 - span]),
+    )
+
+
+def _extrapolation_bounds(
+    knots: np.ndarray,
+    valid: np.ndarray,
+    steps: int | None,
+) -> tuple[float, float]:
+    """
+    Return the range a column may be extrapolated to, see ``interpolate()``.
+
+    Steps are counted in table rows (`knots`) beyond the column's outermost
+    rows with data; beyond the ends of the table, each step is the width of
+    the table's outermost interval.
+
+    """
+    if steps is None:
+        return -np.inf, np.inf
+
+    def walk(index: int, direction: int) -> float:
+        target = index + direction * steps
+        if 0 <= target < len(knots):
+            return knots[target]
+        edge = 0 if direction < 0 else len(knots) - 1
+        width = abs(knots[edge] - knots[edge - direction])
+        return knots[edge] + direction * abs(target - edge) * width
+
+    first, last = np.flatnonzero(valid)[[0, -1]]
+    return walk(first, -1), walk(last, +1)
+
+
+def _add_boundary_knots(spline, left_slope=None, right_slope=None):
     """
     Add knots infinitesimally to the left and right.
 
     Additional intervals are added to have zero 2nd and 3rd derivatives,
-    and to maintain the first derivative from whatever boundary condition
-    was selected. The spline is modified in place.
+    i.e. the spline continues linearly. By default, the first derivative at
+    either boundary is maintained; `left_slope` and `right_slope` override
+    it. The spline is modified in place.
 
-    Taken directly from https://docs.scipy.org/doc/scipy/tutorial/interpolate/extrapolation_examples.html#cubicspline-extend-the-boundary-conditions
+    Works for any ``scipy.interpolate.PPoly`` subclass, including
+    ``PchipInterpolator``. Taken directly from
+    https://docs.scipy.org/doc/scipy/tutorial/interpolate/extrapolation_examples.html#cubicspline-extend-the-boundary-conditions
     """
     # determine the slope at the left edge
     leftx = spline.x[0]
     lefty = spline(leftx)
-    leftslope = spline(leftx, nu=1)
+    leftslope = (
+        spline(leftx, nu=1) if left_slope is None else left_slope
+    )
 
     # add a new breakpoint just to the left and use the
     # known slope to construct the PPoly coefficients.
@@ -503,7 +594,9 @@ def _add_boundary_knots(spline):
     # repeat with additional knots to the right
     rightx = spline.x[-1]
     righty = spline(rightx)
-    rightslope = spline(rightx, nu=1)
+    rightslope = (
+        spline(rightx, nu=1) if right_slope is None else right_slope
+    )
     rightxnext = np.nextafter(rightx, rightx + 1)
     rightynext = righty + rightslope * (rightxnext - rightx)
     rightcoeffs = np.array([0, 0, rightslope, rightynext])
