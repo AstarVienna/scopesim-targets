@@ -15,6 +15,7 @@ from numpy.lib.recfunctions import structured_to_unstructured
 from scipy.spatial import KDTree
 from scipy.interpolate import PchipInterpolator, CubicSpline
 from astropy import units as u
+from astropy.modeling.models import Linear1D
 from astropy.table import Table, QTable, Row, join
 from astropy.utils.masked import Masked, combine_masks
 
@@ -24,6 +25,17 @@ from .data_utils import fetch_data_file
 
 
 _temperature_type = u.get_physical_type("temperature")
+
+#: Empirical Teff-mass relation for field brown dwarfs, used to fill the masses
+#: missing from the Mamajek table (L3V and later). Fitted to filtered data from
+#: Kirkpatrick et al. 2024, ApJS 271, 55 (2024ApJS..271...55K).
+#: Caveat: these are field objects of mixed (mostly Gyr) ages, so the relation
+#: is NOT valid for young populations; brown dwarfs cool with age.
+BROWN_DWARF_TEFF_MASS = Linear1D(
+    slope=0.02607 * u.Mjup / u.K,
+    intercept=18.97 * u.Mjup,
+    name="BD Teff-mass (2024ApJS..271...55K)",
+)
 TeffRange = NamedTuple("TeffRange", [
     ("min", u.Quantity[_temperature_type] | float),
     ("max", u.Quantity[_temperature_type] | float),
@@ -231,7 +243,28 @@ class StellarParameters:
         ]
         mamajek_redux.add_index("spectral_type", unique=True)
 
+        self._fill_brown_dwarf_masses(mamajek_redux)
         return mamajek_redux
+
+    @staticmethod
+    def _fill_brown_dwarf_masses(tbl: QTable) -> None:
+        """
+        Fill missing masses from the brown-dwarf Teff-mass relation, in place.
+
+        Only rows without a Mamajek mass are touched, so tabulated values
+        always take precedence. The filled spectral types and the relation
+        used are recorded in ``tbl.meta`` for provenance.
+
+        """
+        missing = tbl["mass"].mask.copy()  # copy: the fill unmasks in place
+        if not missing.any():
+            return
+        filled = BROWN_DWARF_TEFF_MASS(tbl["teff"][missing]).to(u.solMass)
+        tbl["mass"][missing] = filled.round(4)
+        tbl.meta["mass_fill"] = {
+            "model": BROWN_DWARF_TEFF_MASS.name,
+            "rows": [str(spt) for spt in tbl["spectral_type"][missing]],
+        }
 
     def group_spectral_classes(self) -> Iterator[SpectralClass]:
         """
@@ -401,12 +434,12 @@ class StellarParameters:
         mask = structured_to_unstructured(
             self.table.mask[columns][sorted_indices].as_array()
         )
-        expanded = Masked(np.repeat(sorted_column[:, None], 10, 1), mask=mask)
+        expanded = Masked(np.repeat(sorted_column[:, None], len(columns), 1), mask=mask)
         mins = expanded.min(axis=0)
         maxs = expanded.max(axis=0)
         output_mask = (
-            (np.repeat(values[:, None], 10, 1) < mins) |
-            (np.repeat(values[:, None], 10, 1) > maxs)
+            (np.repeat(values[:, None], len(columns), 1) < mins) |
+            (np.repeat(values[:, None], len(columns), 1) > maxs)
         )
 
         splines = []
