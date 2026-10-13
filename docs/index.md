@@ -57,6 +57,10 @@ flux_scaling.md
 flux_construction.md
 flux_engine.md
 yaml_syntax.md
+
+nebular_backgrounds.md
+background_sed_orion.md
+background_sed_ophiuchus.md
 ```
 
 ## API reference
