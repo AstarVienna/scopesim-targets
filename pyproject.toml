@@ -51,6 +51,9 @@ myst-nb = "^1.4.0"
 sphinx-issues = "^6.0.0"
 seaborn = ">=0.13.2,<1.0"
 pandas = "^3.0.6"
+sphinxcontrib-bibtex = "^2.7.0"
+pdrtpy = "^3.0.1"
+pyneb = "^1.1.32"
 
 
 [tool.poetry.group.notebooks]
@@ -61,6 +64,9 @@ jupytext = "^1.19.5"
 myst-nb = "^1.4.0"
 seaborn = ">=0.13.2,<1.0"
 pandas = "^3.0.6"
+pyneb = "^1.1.32"
+pdrtpy = "^3.0.1"
+sphinxcontrib-bibtex = "^2.7.0"
 
 
 [build-system]
