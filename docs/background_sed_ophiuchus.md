@@ -45,9 +45,9 @@ from myst_nb import glue
 BKG_DIR = Path(os.environ.get("SCOPESIM_BACKGROUNDS_DIR", "../clusterbkg")).resolve()
 sys.path.insert(0, str(BKG_DIR))
 
-import build_orion_nebula_sed as ori
-import build_ophiuchus_sed as oph
-import nebular_backgrounds as nb
+from clusterbkg import build_orion_nebula_sed as ori
+from clusterbkg import build_ophiuchus_sed as oph
+from clusterbkg import nebular_backgrounds as nb
 
 SED_FILE = BKG_DIR / nb.OPHIUCHUS_SED
 sed = QTable.read(SED_FILE, hdu="SPECTRUM")
@@ -120,7 +120,9 @@ obs = {
 noise = oph.p("I_noise_2MASS", u.MJy / u.sr)
 glue("oph_noise", float(noise), display=False)
 glue("oph_10s1_diluted", float(oph.p("I_10S1_Ks_diluted", u.MJy / u.sr)), display=False)
-pd.DataFrame({"observed [MJy/sr]": obs}).T.style.format("{:.2f}").set_table_styles(tbl_sty)
+pd.DataFrame({"observed [MJy/sr]": obs}).T.style.format("{:.2f}"
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 These are peak intensities above the local background, with a mosaic noise of {glue:text}`oph_noise:.2f` MJy/sr, so the measurement has S/N ≈ 3 in Ks and less in J and H.
@@ -193,7 +195,9 @@ model = {str(n): float(v) for n, v in zip(h2_lines["transition"], h2_lines["rati
 pd.DataFrame({
     "model / 1-0 S(1)": {k: model[k] for k in p24},
     "Peeters et al. 2024 / 1-0 S(1)": {k: v / p24["1-0 S(1)"] for k, v in p24.items()},
-}).style.format("{:.2f}").set_table_styles(tbl_sty)
+}).style.format("{:.2f}"
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 The ratios match to about 10 % for most lines.
@@ -268,7 +272,9 @@ ks_target = float(nb.OPHIUCHUS_BRIGHTNESS[1].split()[0])
 assert abs(phot.loc["Ks", "model [mag/arcsec²]"] - ks_target) < 0.005, \
     f"nebular_backgrounds.OPHIUCHUS_BRIGHTNESS ({ks_target}) is out of date"
 
-phot.style.format(precision=2).set_table_styles(tbl_sty)
+phot.style.format(precision=2
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 The model gives Ks = {glue:text}`oph_ks:.2f` mag/arcsec², against {glue:text}`oph_ks_obs:.2f` from 2MASS,
@@ -300,6 +306,7 @@ pd.DataFrame({
     "I / I(1-0 S(1))": h2_lines["ratio_to_10S1"][top],
 }, index=list(h2_lines["transition"][top])).style.format(
     {"λ_vac [µm]": "{:.5f}", "I [erg s⁻¹ cm⁻² arcsec⁻²]": "{:.3e}", "I / I(1-0 S(1))": "{:.3f}"}
+).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty)
 ```
 

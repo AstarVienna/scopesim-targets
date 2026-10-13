@@ -36,7 +36,7 @@ from synphot.models import Empirical1D
 
 from scopesim_targets.extended_source import CoredPowerLaw
 
-from load_background import flux_components
+from .load_background import flux_components
 
 SED_DIR = Path(__file__).resolve().parent
 ORION_SED = "orion_nebula_background_v1.fits"

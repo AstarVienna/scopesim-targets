@@ -10,7 +10,7 @@ from numpy import testing as npt
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
-import nebular_backgrounds as nb
+from . import nebular_backgrounds as nb
 
 KING = {"r_core": 0.13 * u.pc, "r_tide": 2.0 * u.pc}  # reference-scene cluster
 GRID = {"pixel_scale": 1 * u.arcsec / u.pixel, "width": 64, "height": 64}

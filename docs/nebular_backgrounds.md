@@ -46,7 +46,7 @@ from scopesim_targets.extended_source import CoredPowerLaw2D
 BKG_DIR = Path(os.environ.get("SCOPESIM_BACKGROUNDS_DIR", "../backgrounds")).resolve()
 sys.path.insert(0, str(BKG_DIR))
 
-import nebular_backgrounds as nb
+from clusterbkg import nebular_backgrounds as nb
 
 # King profile of the embedded reference cluster (embedded_cluster.yaml).
 KING = {"r_core": 0.13 * u.pc, "r_tide": 2.0 * u.pc}
@@ -181,7 +181,10 @@ pd.DataFrame({
     "spectrum file": [nb.ORION_SED, nb.OPHIUCHUS_SED],
     "total P [arcsec²]": [orion.total_flux_factor().to_value(u.arcsec**2),
                           oph.total_flux_factor().to_value(u.arcsec**2)],
-}, index=["Orion", "Ophiuchus"]).style.format({"total P [arcsec²]": "{:.4g}"}).set_table_styles(tbl_sty)
+}, index=["Orion", "Ophiuchus"]).style.format(
+{"total P [arcsec²]": "{:.4g}"}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 The two levels differ by {glue:text}`bkg_dlevel:.1f` mag/arcsec², and their anchor frames differ too:
@@ -254,7 +257,9 @@ p_ratio = scaling["total P [arcsec²]"].iloc[0] / scaling["total P [arcsec²]"].
 np.testing.assert_allclose(p_ratio, (distances[-1] / distances[0]).decompose().value ** 2, rtol=1e-6)
 glue("bkg_frac_near", float(100 * scaling["fraction in field"].iloc[0]), display=False)
 glue("bkg_frac_far", float(100 * scaling["fraction in field"].iloc[-1]), display=False)
-scaling.style.format({"total P [arcsec²]": "{:.4g}", "fraction in field": "{:.1%}"}, precision=1).set_table_styles(tbl_sty)
+scaling.style.format({"total P [arcsec²]": "{:.4g}", "fraction in field": "{:.1%}"}, precision=1
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 At 414 pc the tidal radius lies far outside a 2′ field, and only {glue:text}`bkg_frac_near:.1f` % of the background's total flux falls inside it.

@@ -28,7 +28,7 @@ from astropy.table import QTable
 from scipy.optimize import brentq
 from pdrtpy.molecule import H2
 
-import build_orion_nebula_sed as orion  # shared helpers: grid, profiles, photometry
+from . import build_orion_nebula_sed as orion  # shared helpers: grid, profiles, photometry
 
 VERSION = "1.0.0"
 OUTDIR = Path(__file__).resolve().parent

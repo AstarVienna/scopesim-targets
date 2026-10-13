@@ -47,8 +47,8 @@ from myst_nb import glue
 BKG_DIR = Path(os.environ.get("SCOPESIM_BACKGROUNDS_DIR", "../clusterbkg")).resolve()
 sys.path.insert(0, str(BKG_DIR))
 
-import build_orion_nebula_sed as ori
-import nebular_backgrounds as nb
+from clusterbkg import build_orion_nebula_sed as ori
+from clusterbkg import nebular_backgrounds as nb
 
 SED_FILE = BKG_DIR / nb.ORION_SED
 sed = QTable.read(SED_FILE, hdu="SPECTRUM")
@@ -139,7 +139,9 @@ fwhm = pd.DataFrame({
     "FWHM [km/s]": [diag("FWHM_HI_kms"), diag("FWHM_HeI_kms")],
     "lines": [int(diag("n_lines_HI")), int(diag("n_lines_HeI"))],
 }, index=["H I", "He I"])
-fwhm.style.format({"FWHM [km/s]": "{:.1f}"}).set_table_styles(tbl_sty)
+fwhm.style.format({"FWHM [km/s]": "{:.1f}"}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 ## Absolute level
@@ -199,7 +201,9 @@ pd.DataFrame({
     "O'Dell & Harris 2010 [Å]": odell,
     "this continuum [Å]": ew,
     "difference": {n: f"{100 * (ew[n] / odell[n] - 1):+.0f} %" for n in odell},
-}).rename_axis("n_e [cm⁻³]").style.format(precision=0).set_table_styles(tbl_sty)
+}).rename_axis("n_e [cm⁻³]").style.format(precision=0
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 ## The spectrum
@@ -277,7 +281,9 @@ assert abs(phot.loc["Ks", "mag/arcsec² (intrinsic)"] - ks_target) < 0.005, \
     f"nebular_backgrounds.ORION_BRIGHTNESS ({ks_target}) is out of date"
 
 pct = {c: "{:.0%}" for c in (*COMPONENTS, "+ SCATTERED_UL")}
-phot.style.format({"mag/arcsec² (intrinsic)": "{:.2f}", "MJy/sr": "{:.0f}", **pct}).set_table_styles(tbl_sty)
+phot.style.format({"mag/arcsec² (intrinsic)": "{:.2f}", "MJy/sr": "{:.0f}", **pct}
+).set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 In Ks, the nebular continuum carries {glue:text}`orion_ks_cont:.0f` % of the total of {glue:text}`orion_ks:.2f` mag/arcsec²; the lines are a minority even there.
@@ -306,6 +312,7 @@ pd.DataFrame({
     "I / I(Brγ)": sel["ratio_to_Brg"],
 }, index=list(sel["name"])).style.format(
     {"λ_vac [µm]": "{:.5f}", "I [erg s⁻¹ cm⁻² arcsec⁻²]": "{:.3e}", "I / I(Brγ)": "{:.3f}"}
+).set_table_attributes("class='dataframe'"
 ).set_table_styles(tbl_sty)
 ```
 
@@ -331,7 +338,8 @@ The PAH bands {cite:p}`Peeters2024`, as positions and widths (Table H.1) and H I
 :tags: [remove-input]
 
 pd.DataFrame(ori.PAH_BANDS, columns=["band", "λ₀ [µm]", "FWHM [µm]", "I [10⁻³ erg s⁻¹ cm⁻² sr⁻¹]"]
-             ).set_index("band").style.set_table_styles(tbl_sty)
+             ).set_index("band").style.set_table_attributes("class='dataframe'"
+).set_table_styles(tbl_sty)
 ```
 
 (sec:orion-limits)=

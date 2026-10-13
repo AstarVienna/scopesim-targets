@@ -60,7 +60,7 @@ nb_execution_raise_on_error = True  # Fail the build on errors (incl. data/code 
 numfig = True
 
 # Bibliography for the background pages (keys match the code and FITS headers)
-bibtex_bibfiles = ["../backgrounds/references.bib"]  # relative to this file
+bibtex_bibfiles = ["../clusterbkg/references.bib"]  # relative to this file
 bibtex_reference_style = "author_year"
 # Each page has its own reference list, so shared keys are expected there
 suppress_warnings = ["bibtex.duplicate_citation"]
