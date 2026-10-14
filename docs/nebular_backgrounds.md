@@ -30,6 +30,7 @@ The flux bookkeeping behind all of this is explained in {doc}`flux_scaling`.
 
 import os
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 import pandas as pd
 import seaborn as sns
+from IPython.display import Markdown
 from myst_nb import glue
 
 from scopesim_targets.extended_source import CoredPowerLaw2D
@@ -47,6 +49,7 @@ BKG_DIR = Path(os.environ.get("SCOPESIM_BACKGROUNDS_DIR", "../backgrounds")).res
 sys.path.insert(0, str(BKG_DIR))
 
 from clusterbkg import nebular_backgrounds as nb
+from clusterbkg import nebular_textures as nt
 
 # King profile of the embedded reference cluster (embedded_cluster.yaml).
 KING = {"r_core": 0.13 * u.pc, "r_tide": 2.0 * u.pc}
@@ -79,6 +82,22 @@ def level_mag(brightness):
 def extent_arcsec(grid):
     half = grid["pixel_scale"].to_value(u.arcsec / u.pixel) * grid["width"] / 2
     return (-half, half, -half, half)
+
+def md_table(df):
+    """DataFrame -> MyST Markdown table (so citation roles inside resolve)."""
+    head = "| " + " | ".join(df.columns) + " |"
+    rule = "|" + "---|" * len(df.columns)
+    body = ["| " + " | ".join(str(v) for v in row) + " |" for row in df.itertuples(index=False)]
+    return Markdown("\n".join([head, rule, *body]))
+
+def sb_image(background, grid, m_ref):
+    """Rendered surface brightness [mag/arcsec2] of a background on a grid,
+    given the magnitude ``m_ref`` that its brightness sets at r_ref."""
+    omega = (grid["pixel_scale"] * u.pix).to_value(u.arcsec) ** 2
+    w = background.to_source(grid).fields[0].data
+    rel = w * background.total_flux_factor().to_value(u.arcsec**2) / omega  # = S / S_ref
+    with np.errstate(divide="ignore"):
+        return np.where(rel > 0, m_ref - 2.5 * np.log10(rel), np.nan)
 ```
 
 ## The profile
@@ -285,6 +304,191 @@ That level is an upper envelope, measured on the ρ Oph W ridge {cite:p}`Casassu
 Pass `index=0` for a uniform disk out to the tidal radius instead.
 ```
 
+(sec:bkg-texture)=
+## Adding structure: a log-normal texture
+Real nebulae are not smooth.
+An optional `texture` multiplies the smooth profile with a reproducible random field {math}`f`:
+
+```{math}
+:label: bkg-texture
+
+S(x, y) \;=\; S_\mathrm{smooth}(r)\, f(x, y), \qquad
+f = \frac{e^{\delta}}{\langle e^{\delta} \rangle}, \qquad
+P_\delta(k) \;\propto\;
+\begin{cases}
+1 & k < k_\mathrm{out} \\
+(k/k_\mathrm{out})^{-\beta} & k_\mathrm{out} \le k < k_\mathrm{in} \\
+(k_\mathrm{in}/k_\mathrm{out})^{-\beta} (k/k_\mathrm{in})^{-\beta_\mathrm{in}} & k \ge k_\mathrm{in}
+\end{cases}
+```
+
+Here {math}`\delta` is a Gaussian random field with standard deviation {math}`\sigma`, and the wavenumbers are {math}`k = 1/\lambda`, with {math}`k_\mathrm{out}` and {math}`k_\mathrm{in}` the inverse outer and inner scales.
+Because {math}`f` has unit mean, `brightness` still refers to the smooth profile, and its analytic total {math}`P` stays the *expected* total (see {doc}`flux_scaling`).
+A single realization's weightmap sum scatters slightly around the visible fraction.
+The field is generated once in parsecs, so the same seed gives the same nebula at every distance.
+
+### Measured statistics
+All texture parameters come from the surface-brightness analysis of the inner Orion Nebula by {cite:t}`Arthur2016`.
+Two of them are not used as published but forward-calibrated, because the published estimators are not the texture's parameters.
+
+```{code-cell} ipython3
+---
+tags: [remove-input]
+mystnb:
+  markdown_format: myst
+---
+src = "{cite:p}`Arthur2016`"
+pc = lambda a: f"{(a.to_value(u.rad) * nt.SCENE_DISTANCE).to_value(u.pc):.4f} pc"
+md_table(pd.DataFrame([
+    ("outer scale", f"{nt.ORION_OUTER_ANGLE:.0f} = {pc(nt.ORION_OUTER_ANGLE)}", f"{src}, Sect. 3.1, 4.4", "`outer_scale`"),
+    ("inner scale", f"{nt.ORION_INNER_ANGLE:.0f} = {pc(nt.ORION_INNER_ANGLE)}", f"{src}, Sect. 3.1, 4.4", "`inner_scale`"),
+    ("1D slope between the scales (Hα)", f"{nt.ORION_GAMMA_T2} ± {nt.ORION_GAMMA_T2_ERR}", f"{src}, Table 2", "calibrates `beta`"),
+    ("1D slope below the inner scale (Hα)", f"{nt.ORION_GAMMA_T3}", f"{src}, Table 3", f"`beta_inner` = 1 − γ = {nt.ORION_BETA_INNER:.2f}"),
+    ("PDF width σ_ln(S/S₀)", f"{nt.ORION_SIGMA_OBS_RANGE[0]}–{nt.ORION_SIGMA_OBS_RANGE[1]}, mid-range {nt.ORION_SIGMA_OBS:.3f}", f"{src}, Sect. 4.3, Fig. 15", "calibrates `sigma`"),
+    ("map binning", f"16 × 0.54″ = {nt.ORION_BIN:.2f}", f"{src}, Sect. 4.3, Fig. 8", "PDF estimator"),
+    ("PDF fit", f"log-normal core, density > {nt.PDF_CORE_FRACTION} × max", f"{src}, Sect. 4.3, Fig. 15", "PDF estimator"),
+    ("field and θ¹ Ori C", "J2000 boundaries and position", f"{src}, footnote 1", "PDF estimator"),
+], columns=["quantity", "value", "source", "used as"]))
+```
+
+Their angular scales are expressed as lengths at the reference-scene distance, the same convention as {math}`r_\mathrm{ref}`.
+
+### The slope
+The measured slopes are 1D power spectra along long slits.
+A 1D cut through an isotropic 2D field with {math}`P \propto k^{-\beta}` has slope {math}`-(\beta - 1)`, which directly converts the small-scale tail.
+Between the two scales, the window spans less than a factor of three, and the adjacent steep tail steepens the 1D slope.
+So {math}`\beta` is chosen such that slit spectra *of the texture* reproduce the measured slope in that window:
+
+```{code-cell} ipython3
+beta_cal = nt.calibrate_beta()
+assert abs(beta_cal - nt.ORION_BETA) < 0.02, "nebular_textures.ORION_BETA is out of date"
+
+# Independent check: slit spectra of the actual (physical) texture, other seeds
+slopes = []
+for seed in range(100, 106):
+    tex = nt.orion_texture(0.3 * u.pc, seed, sigma=1.0, n_grid=1024)
+    slopes.append(nt.slit_slope(tex, 1 / tex.outer_scale.to_value(u.pc), 1 / tex.inner_scale.to_value(u.pc)))
+assert abs(np.mean(slopes) - nt.ORION_GAMMA_T2) < nt.ORION_GAMMA_T2_ERR
+
+glue("tex_beta_cal", float(beta_cal), display=False)
+glue("tex_beta_naive", float(1 - nt.ORION_GAMMA_T2), display=False)
+glue("tex_slope_check", float(np.mean(slopes)), display=False)
+```
+
+The plain conversion would give {math}`\beta` = {glue:text}`tex_beta_naive:.2f`; the calibration gives {glue:text}`tex_beta_cal:.2f`.
+Slit spectra of independent realizations then have a mean slope of {glue:text}`tex_slope_check:.2f` in the measured window, against the published −2.79 ± 0.15.
+{numref}`fig:bkg-texture-spectrum` shows the three regimes.
+
+```{code-cell} ipython3
+---
+tags: [hide-input]
+mystnb:
+  figure:
+    name: fig:bkg-texture-spectrum
+    caption: Mean 1D (slit) power spectrum of the texture's log-brightness, with the measured
+      slopes of Arthur et al. (2016) in the two regimes (dashed). Shading marks the window
+      between the inner and outer scale.
+---
+tex = nt.orion_texture(0.3 * u.pc, 100, sigma=1.0, n_grid=1024)
+lf, dx = tex.log_field, tex.spacing.to_value(u.pc)
+ps = np.mean(np.abs(np.fft.rfft(lf, axis=1)) ** 2, axis=0)
+k_pc = np.fft.rfftfreq(lf.shape[1], dx)[1:]
+ps = ps[1:]
+pc_per_arcsec = (1 * u.arcsec).to_value(u.rad) * nt.SCENE_DISTANCE.to_value(u.pc)
+k_as = k_pc * pc_per_arcsec  # waves per arcsec, as in the paper
+k_out, k_in = 1 / nt.ORION_OUTER_ANGLE.value, 1 / nt.ORION_INNER_ANGLE.value
+
+fig, ax = plt.subplots(figsize=(7, 4), layout="compressed")
+ax.loglog(k_as, ps, color="k", lw=1, label="texture (one realization)")
+ax.axvspan(k_out, k_in, color="0.9", zorder=0)
+for (k0, k1, slope), label in (((k_out, k_in, nt.ORION_GAMMA_T2), "Table 2, −2.79"),
+                               ((k_in, 4 * k_in, nt.ORION_GAMMA_T3), "Table 3, −4.26")):
+    kk = np.geomspace(k0, k1, 20)
+    ref = np.interp(k0, k_as, ps) * 2.0
+    ax.loglog(kk, ref * (kk / k0) ** slope, ls="--", label=f"measured slope ({label})")
+ax.set_xlim(1e-3, 1); ax.set_xlabel("k [waves per arcsec]"); ax.set_ylabel("power (arbitrary)")
+ax.legend(fontsize=8, loc="lower left")
+plt.show()
+```
+
+### The amplitude, and a lower limit on the core
+The measured PDF width describes the *whole* map: it also contains the large-scale falloff, which the smooth profile already provides.
+So {math}`\sigma` is calibrated by rendering profile × texture over the field of {cite:t}`Arthur2016`, binning and analysing it as they did, and matching the measured width (averaged over fixed calibration seeds).
+The result therefore depends on the nebular core radius:
+
+```{code-cell} ipython3
+:tags: [hide-input]
+
+r_min = nt.minimum_r_core()
+r_lo = nt.minimum_r_core(sigma_obs=nt.ORION_SIGMA_OBS_RANGE[1])
+r_hi = nt.minimum_r_core(sigma_obs=nt.ORION_SIGMA_OBS_RANGE[0])
+cores = [KING["r_core"], 0.2 * u.pc, 0.25 * u.pc, 0.3 * u.pc, 0.5 * u.pc]
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    sig = {f"{r:.2f}": (nt.profile_width(r), nt.calibrate_sigma(r)) for r in cores}
+glue("tex_rmin", float(r_min.to_value(u.pc)), display=False)
+glue("tex_rlo", float(r_lo.to_value(u.pc)), display=False)
+glue("tex_rhi", float(r_hi.to_value(u.pc)), display=False)
+glue("tex_king_width", float(sig[f"{KING['r_core']:.2f}"][0]), display=False)
+pd.DataFrame(sig, index=["smooth-profile PDF width", "texture σ"]).T.rename_axis("nebular r_core"
+).style.format("{:.3f}").set_table_attributes("class='dataframe'").set_table_styles(tbl_sty)
+```
+
+```{admonition} The King core is too small for an Orion-like nebula
+:class: warning
+
+With the King core of the reference cluster, the smooth profile alone already has a PDF width of {glue:text}`tex_king_width:.2f`, more than the Orion Nebula itself.
+No texture can be added (the calibration returns zero and warns).
+The measured width requires a nebular core of at least {glue:text}`tex_rmin:.2f` pc ({glue:text}`tex_rlo:.2f`–{glue:text}`tex_rhi:.2f` pc across the measured range).
+For textured Orion-like runs, pass a nebular `r_core` above this limit; `r_tide` can stay matched to the cluster.
+```
+
+### Textured backgrounds
+{numref}`fig:bkg-texture-distance` repeats {numref}`fig:bkg-distance` with a texture, for a nebular core above the limit.
+The same seed gives the same nebula at every distance; only its angular size changes.
+
+```{code-cell} ipython3
+NEB_R_CORE = 0.3 * u.pc
+texture = nt.orion_texture(NEB_R_CORE, rng_seed=1138)
+textured = {d: nb.orion_background(position(d), NEB_R_CORE, KING["r_tide"], texture=texture) for d in distances}
+smooth = {d: nb.orion_background(position(d), NEB_R_CORE, KING["r_tide"]) for d in distances}
+for d in distances:  # the texture changes the structure, not the expected total
+    assert textured[d].total_flux_factor() == smooth[d].total_flux_factor()
+glue("tex_sigma_demo", float(texture.sigma), display=False)
+glue("tex_rcore_demo", float(NEB_R_CORE.to_value(u.pc)), display=False)
+```
+
+```{code-cell} ipython3
+---
+tags: [hide-input]
+mystnb:
+  figure:
+    name: fig:bkg-texture-distance
+    caption: The textured Orion background (nebular core 0.3 pc, one seed) in a 2′ field at
+      three distances, as surface brightness.
+---
+m_ref = level_mag(nb.ORION_BRIGHTNESS)
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.9), layout="compressed", sharey=True)
+for ax, d in zip(axes, distances):
+    im = ax.imshow(sb_image(textured[d], grid, m_ref), origin="lower", extent=extent_arcsec(grid),
+                   cmap="magma_r", vmin=m_ref - 2, vmax=m_ref + 5)
+    ax.set_title(f"d = {d.to(u.kpc):.3g}", fontsize=9); ax.set_xlabel("x [arcsec]"); ax.grid(False)
+axes[0].set_ylabel("y [arcsec]")
+fig.colorbar(im, ax=axes, label="Ks surface brightness [mag/arcsec²]")
+plt.show()
+```
+
+With a nebular core of {glue:text}`tex_rcore_demo:.1f` pc, the calibrated texture has {math}`\sigma` = {glue:text}`tex_sigma_demo:.2f`.
+
+```{admonition} The Ophiuchus texture is borrowed too
+:class: note
+
+No surface-brightness fluctuation statistics exist for the diffuse near-infrared emission of L1688.
+For a controlled comparison, pass the Orion texture to `ophiuchus_background` as well.
+Herschel maps show the Ophiuchus cloud to be dominated by filaments about 0.1 pc wide {cite:p}`Ladjelate2020,Yin2025`,
+so its characteristic scale is likely larger than Orion's outer scale.
+```
+
 ## Using the backgrounds in a scene
 The background goes under the cluster with the same position and the same King radii.
 Building the cluster itself is shown elsewhere; schematically:
@@ -295,12 +499,16 @@ king = {"n_stars": 1000, "r_core": 0.13 * u.pc, "r_tide": 2.0 * u.pc}
 cluster = ZeroAgeCluster(pos, IMFPopulation, {"n_stars": 1000},
                          KingProfileMorphology, king, rng_seed=1138)
 background = nb.orion_background(pos, king["r_core"], king["r_tide"])
+
+# textured, with a nebular core above the limit of the texture calibration
+texture = nt.orion_texture(0.3 * u.pc, rng_seed=1138)
+background = nb.orion_background(pos, 0.3 * u.pc, king["r_tide"], texture=texture)
 ```
 
 Two constraints and one current limitation apply:
 
 * **The tidal radius must exceed** {math}`r_\mathrm{ref}`. Otherwise the surface brightness would be anchored where the profile is zero, and the target raises an error.
-* **Moving the scene means rebuilding both targets** with a new {class}`~astropy.coordinates.SkyCoord`, as shown in {ref}`sec:bkg-distance`.
+* **Moving the scene means rebuilding both targets** with a new {class}`~astropy.coordinates.SkyCoord`, as shown in {ref}`sec:bkg-distance`. The texture can be reused: it lives in parsecs, and its calibrated {math}`\sigma` does not depend on the distance or the seed.
 * **The profile is always centred on the field.** Extended targets do not yet honour `position` or `offset` in rendering.
 
 ## References

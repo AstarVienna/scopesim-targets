@@ -11,6 +11,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 
 from . import nebular_backgrounds as nb
+from . import nebular_textures as nt
 
 KING = {"r_core": 0.13 * u.pc, "r_tide": 2.0 * u.pc}  # reference-scene cluster
 GRID = {"pixel_scale": 1 * u.arcsec / u.pixel, "width": 64, "height": 64}
@@ -70,6 +71,14 @@ class TestGeometry:
         kwargs = dict(KING) | {bad: 10 * u.arcsec}
         with pytest.raises(ValueError, match="physical length"):
             factory(_pos(414 * u.pc), **kwargs)
+
+    def test_texture_passes_through(self, factory):
+        tex = nt.orion_texture(0.3 * u.pc, 0, sigma=0.5, n_grid=256)
+        smooth = factory(_pos(414 * u.pc), **KING)
+        textured = factory(_pos(414 * u.pc), **KING, texture=tex)
+        assert textured.texture is tex and smooth.texture is None
+        w_s, w_t = smooth._weightmap(GRID)[0], textured._weightmap(GRID)[0]
+        assert w_t.shape == w_s.shape and not np.allclose(w_t, w_s)
 
     def test_tidal_radius_inside_r_ref_rejected(self, factory):
         # The SB anchor (0.224 pc) must lie inside the truncation radius.

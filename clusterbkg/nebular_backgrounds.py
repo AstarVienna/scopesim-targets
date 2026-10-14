@@ -15,6 +15,9 @@ effect of the background itself.
   the new distance (radii are converted to angles at construction).
 * Surface brightness is distance-invariant: only the angular size changes with
   distance, never the brightness per arcsec2.
+* Optional ``texture``: multiplicative random structure on top of the smooth
+  profile, e.g. :func:`.nebular_textures.orion_texture`. Its scales are lengths
+  too, so the same seed gives the same nebula at every distance.
 
 Example (reference scene: King r_core = 0.13 pc, r_tide = 2.0 pc, 414 pc)::
 
@@ -116,6 +119,7 @@ def nebular_background(
     index: float = DEFAULT_INDEX,
     r_ref: u.Quantity = ORION_R_REF,
     extinction=None,
+    texture=None,
 ) -> CoredPowerLaw:
     """Generic King-matched cored power-law background (all radii lengths)."""
     for name, value in (
@@ -130,6 +134,7 @@ def nebular_background(
         brightness=brightness,
         anchor=anchor,
         extinction=extinction,
+        texture=texture,
         params={
             "r_core": r_core,
             "index": index,
@@ -148,13 +153,15 @@ def orion_background(
     r_ref: u.Quantity = ORION_R_REF,
     extinction=None,
     components=None,
+    texture=None,
 ) -> CoredPowerLaw:
     """Orion-Nebula-like H II-region background (intrinsic frame).
 
     ``r_core``/``r_tide``: the cluster's King radii (lengths). The surface
     brightness ``ORION_BRIGHTNESS`` applies at ``r_ref``, which must lie
     inside ``r_tide``. Pass ``extinction`` for the foreground screen once
-    screens are applied in the pipeline.
+    screens are applied in the pipeline, and ``texture`` (e.g.
+    :func:`.nebular_textures.orion_texture`) for random structure.
     """
     return nebular_background(
         position,
@@ -166,6 +173,7 @@ def orion_background(
         index=index,
         r_ref=r_ref,
         extinction=extinction,
+        texture=texture,
     )
 
 
@@ -177,6 +185,7 @@ def ophiuchus_background(
     index: float = DEFAULT_INDEX,
     r_ref: u.Quantity = ORION_R_REF,
     components=None,
+    texture=None,
 ) -> CoredPowerLaw:
     """rho-Oph-W-like fluorescent-H2 background (observed frame).
 
@@ -184,7 +193,8 @@ def ophiuchus_background(
     comparison: no radial law has been measured for the diffuse emission of
     L1688, so the shape is the Orion one and only the spectrum and the level
     (``OPHIUCHUS_BRIGHTNESS`` at ``r_ref``) are Ophiuchus-specific. Use
-    ``index=0`` for a uniform disk out to ``r_tide`` instead.
+    ``index=0`` for a uniform disk out to ``r_tide`` instead. A ``texture``
+    is likewise borrowed from Orion (no Ophiuchus-specific statistics exist).
     """
     return nebular_background(
         position,
@@ -195,4 +205,5 @@ def ophiuchus_background(
         r_tide,
         index=index,
         r_ref=r_ref,
+        texture=texture,
     )
