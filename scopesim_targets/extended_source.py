@@ -27,6 +27,7 @@ from scopesim.source.source_fields import ImageSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import SpectrumTarget, length_angle_context
+from .texture import LognormalTexture
 from .brightness import BrightnessError, AmountKind, Brightness
 
 
@@ -113,6 +114,34 @@ class ParametrizedTarget(ExtendedSourceTarget):
         )
 
     def _render_image(self, optical_train):
+        """Unit-amplitude profile as rendered: the smooth shape
+        (:meth:`_render_smooth`) times the texture, if one is set.
+
+        Everything downstream (weight map, effective area) uses this, so a
+        texture enters the flux bookkeeping in one place only.
+        """
+        img = self._render_smooth(optical_train)
+        if getattr(self, "texture", None) is not None:
+            img = img * self._render_texture(optical_train)
+        return img
+
+    def _render_texture(self, optical_train):
+        """Pixel-averaged texture on the render grid, centered like the model.
+
+        Pixel coordinates are converted from the arcsec render space to the
+        texture's own units -- with the target distance for physical textures
+        -- so the same texture gives the same structure at every distance.
+        """
+        scale = self._scale_arcsec(optical_train)
+        x = self._grid_centers(int(optical_train["width"]), scale) * u.arcsec
+        y = self._grid_centers(int(optical_train["height"]), scale) * u.arcsec
+        pix = scale * u.arcsec
+        if self.texture.is_physical:
+            with length_angle_context(self._distance):
+                x, y, pix = (q.to(self.texture.unit) for q in (x, y, pix))
+        return self.texture.sample(x, y, pixel_size=pix)
+
+    def _render_smooth(self, optical_train):
         """Render the unit-amplitude model, pixel-averaged, FITS-oriented.
 
         Rendering happens in a bare arcsec numeric space: model params live in
@@ -232,6 +261,7 @@ class BrightnessProfile(ParametrizedTarget):
         params: Mapping[str, u.Quantity | Number] | None = None,
         anchor: str | None = None,
         extinction=None,
+        texture: LognormalTexture | None = None,
     ) -> None:
         if position is not None:
             self.position = position
@@ -245,11 +275,18 @@ class BrightnessProfile(ParametrizedTarget):
             self.extinction = extinction
 
         distance = None
-        if (pos := getattr(self, "position", None)) is not None and \
-            pos.distance.unit.physical_type == "length":
-            distance = pos.distance
-        # FIXME: This angle resolving should be move to concretization time to
-        #        also support parent_position eventually!
+        try:
+            if self.position.distance.unit.physical_type == "length":
+                distance = self.position.distance
+        except AttributeError:
+            pass
+        self._distance = distance
+        # Multiplicative random structure on top of the smooth profile. It has
+        # unit mean, so ``brightness`` keeps referring to the smooth (expected)
+        # profile and its analytic total stays the expected total.
+        self.texture = texture
+        if texture is not None and texture.is_physical and distance is None:
+            raise ValueError("Physical length for texture needs distance.")
         params = {
             k: self._coerce_param(k, v, distance)
             for k, v in dict(params or {}).items()
@@ -305,7 +342,10 @@ class BrightnessProfile(ParametrizedTarget):
         Everything downstream (weight map ``w_ij = Omega * p_ij / A_eff``,
         surface-brightness reduction ``F = S * A_eff``) is identical; only this
         area differs. Either way the flux landing in a pixel is
-        ``S * Omega * p_ij``.
+        ``S * Omega * p_ij``. With a texture ``f``, ``p`` is the textured
+        profile ``p * f``: finite profiles keep the smooth analytic ``P`` (the
+        expected total, since ``f`` has unit mean), non-integrable ones close
+        the integral over ``p * f``.
         """
         if self.has_finite_total:
             return self.total_flux_factor()
@@ -449,7 +489,7 @@ class Box(BrightnessProfile):
             (self._model.y_width << u.arcsec)
         )
 
-    def _render_image(self, optical_train):
+    def _render_smooth(self, optical_train):
         """Exact per-pixel coverage fractions (analytic pixel integral).
 
         ``Box2D`` is axis-aligned, so the pixel integral separates into two 1D
@@ -598,6 +638,9 @@ class Flat(BrightnessProfile):
 
     def _effective_area(self, optical_train) -> u.Quantity:
         # The FOV closes the open integral: A_eff = Omega_pixel * N_pixels.
+        # That shortcut needs img == 1; a texture makes the image non-uniform.
+        if self.texture is not None:
+            return super()._effective_area(optical_train)
         n_pixels = optical_train["width"] * optical_train["height"]
         return self._pixel_area(optical_train) * n_pixels
 

@@ -27,6 +27,7 @@ from scopesim_targets.extended_source import (
     CoredPowerLaw,
     CoredPowerLaw2D,
 )
+from scopesim_targets.texture import LognormalTexture
 from scopesim_targets.brightness import (
     BrightnessError,
     parse_brightness,
@@ -653,6 +654,79 @@ class TestPhysicalLengthParams:
         # distance, rather than fail with an opaque unit-conversion error.
         with pytest.raises(ValueError, match="distance"):
             CoredPowerLaw(params={"r_core": 0.1 * u.pc}, position=position)
+
+
+def _texture(**kwargs):
+    """Small, fast physical texture (Orion-like scales, see nebular_textures)."""
+    base = dict(sigma=0.5, beta=3.5, outer_scale=0.044 * u.pc, inner_scale=0.016 * u.pc,
+                beta_inner=5.26, rng_seed=3, n_grid=256)
+    return LognormalTexture(**(base | kwargs))
+
+
+class TestTexture:
+    """Multiplicative texture: p -> p * f, with the flux bookkeeping unchanged."""
+
+    PARAMS = {"r_core": 10, "index": 3, "r_ref": 10}  # finite (index > 2), arcsec
+
+    def test_weightmap_is_smooth_times_texture(self, grid):
+        tex = _texture()
+        smooth = CoredPowerLaw(params=self.PARAMS)
+        textured = CoredPowerLaw(params=self.PARAMS, texture=tex, position=_sky(414 * u.pc))
+        f = textured._render_texture(grid)
+        npt.assert_allclose(textured._weightmap(grid)[0], smooth._weightmap(grid)[0] * f, rtol=1e-12)
+        # finite profile: the smooth analytic total stays the (expected) total
+        assert textured._effective_area(grid) == smooth._effective_area(grid)
+
+    def test_pixel_flux_is_s_omega_p_f(self, grid, monkeypatch):
+        # w * A_eff = Omega * p * f in both branches (flux_scaling.md invariant).
+        prof = CoredPowerLaw(params=self.PARAMS, texture=_texture(), position=_sky(414 * u.pc))
+        expected = prof._render_image(grid) * prof._pixel_area(grid)
+        npt.assert_allclose((prof._weightmap(grid)[0] * prof._effective_area(grid)).value,
+                            expected.value, rtol=1e-12)
+        monkeypatch.setattr(CoredPowerLaw, "has_finite_total", property(lambda self: False))
+        npt.assert_allclose((prof._weightmap(grid)[0] * prof._effective_area(grid)).value,
+                            expected.value, rtol=1e-12)
+
+    def test_nonintegrable_textured_sums_to_one(self, grid):
+        prof = CoredPowerLaw(params={"r_core": 3, "index": 2, "r_ref": 20},
+                             texture=_texture(), position=_sky(414 * u.pc))
+        npt.assert_allclose(prof._weightmap(grid)[0].sum(), 1.0, rtol=1e-12)
+
+    def test_textured_flat_closes_integral_over_texture(self, grid):
+        # Regression: Flat's Omega*N shortcut only holds for img == 1.
+        flat = Flat(texture=_texture(), position=_sky(414 * u.pc))
+        f = flat._render_texture(grid)
+        npt.assert_allclose(flat._effective_area(grid).to_value(u.arcsec**2),
+                            (flat._pixel_area(grid) * f.sum()).to_value(u.arcsec**2), rtol=1e-12)
+        npt.assert_allclose(flat._weightmap(grid)[0].sum(), 1.0, rtol=1e-12)
+        assert not np.isclose(f.mean(), 1.0, rtol=1e-6)  # the shortcut would be wrong
+
+    def test_box_keeps_exact_coverage_under_texture(self, grid):
+        box = Box(params={"x_width": 6.5, "y_width": 4})
+        tbox = Box(params={"x_width": 6.5, "y_width": 4}, texture=_texture(), position=_sky(414 * u.pc))
+        npt.assert_allclose(tbox._render_image(grid), box._render_image(grid) * tbox._render_texture(grid),
+                            rtol=1e-12)
+
+    def test_physical_texture_needs_distance(self):
+        with pytest.raises(ValueError, match="distance"):
+            CoredPowerLaw(params=self.PARAMS, texture=_texture())
+        with pytest.raises(ValueError, match="distance"):
+            CoredPowerLaw(params=self.PARAMS, texture=_texture(), position=_sky())
+
+    def test_angular_texture_needs_no_distance(self, grid):
+        tex = _texture(outer_scale=22 * u.arcsec, inner_scale=8 * u.arcsec)
+        prof = CoredPowerLaw(params=self.PARAMS, texture=tex)
+        assert prof._render_texture(grid).shape == (64, 64)
+
+    def test_same_nebula_at_every_distance(self):
+        # Same physical pixel positions at 414 pc / 1"/px and 828 pc / 0.5"/px:
+        # the texture must be identical (it lives in pc, not in pixels).
+        tex = _texture()
+        near = CoredPowerLaw(params=self.PARAMS, texture=tex, position=_sky(414 * u.pc))
+        far = CoredPowerLaw(params=self.PARAMS, texture=tex, position=_sky(828 * u.pc))
+        g_near = {"pixel_scale": 1.0 * u.arcsec / u.pixel, "width": 40, "height": 40}
+        g_far = {"pixel_scale": 0.5 * u.arcsec / u.pixel, "width": 40, "height": 40}
+        npt.assert_allclose(near._render_texture(g_near), far._render_texture(g_far), rtol=1e-6)
 
 class TestAnchorOnProfiles:
     """Anchor-frame behaviour specific to extended (surface-brightness) targets."""
