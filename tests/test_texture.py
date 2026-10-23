@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for texture.py."""
+"""Unit tests for texture.py (pure: numpy/scipy/astropy only)."""
 
 import numpy as np
 import pytest
 from numpy import testing as npt
 import astropy.units as u
 
-from scopesim_targets.texture import LognormalTexture
+from scopesim_targets.texture import LognormalTexture, ProductTexture
 
 
 def _tex(**kwargs):
@@ -107,3 +107,39 @@ class TestValidation:
     def test_bad_parameters_raise(self, bad):
         with pytest.raises(ValueError):
             _tex(**bad)
+
+
+class TestProduct:
+    def test_product_is_product_of_factors(self):
+        a, b = _tex(), _tex(sigma=0.3, outer_scale=0.4 * u.pc, rng_seed=8, n_grid=512)
+        x = np.linspace(0, 0.5, 9) * u.pc
+        npt.assert_allclose((a * b).sample(x, x), a.sample(x, x) * b.sample(x, x), rtol=1e-12)
+
+    def test_nested_products_flatten(self):
+        a, b, c = _tex(), _tex(rng_seed=8), _tex(rng_seed=9)
+        prod = (a * b) * c
+        assert isinstance(prod, ProductTexture) and prod.factors == (a, b, c)
+        assert (a * (b * c)).factors == (a, b, c)
+
+    def test_independent_factors_keep_unit_mean(self):
+        a = _tex(sigma=0.4, n_grid=512)
+        b = _tex(sigma=0.4, rng_seed=99, n_grid=512)
+        x = np.arange(400) * a.spacing
+        npt.assert_allclose((a * b).sample(x, x).mean(), 1.0, atol=0.03)
+
+    def test_units_and_kind(self):
+        prod = _tex() * _tex(rng_seed=8)
+        assert prod.is_physical and prod.unit == u.pc
+
+    def test_mixed_kinds_raise(self):
+        angular = _tex(outer_scale=22 * u.arcsec, inner_scale=8 * u.arcsec)
+        with pytest.raises(ValueError, match="mix"):
+            _tex() * angular
+
+    def test_non_texture_raises(self):
+        with pytest.raises(TypeError):
+            _tex() * 2.0
+
+    def test_single_factor_rejected(self):
+        with pytest.raises(ValueError):
+            ProductTexture((_tex(),))

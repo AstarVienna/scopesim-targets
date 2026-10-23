@@ -27,7 +27,7 @@ from scopesim.source.source_fields import ImageSourceField
 
 from .typing_utils import POSITION_TYPE, SPECTRUM_TYPE, BRIGHTNESS_TYPE
 from .target import SpectrumTarget, length_angle_context
-from .texture import LognormalTexture
+from .texture import LognormalTexture, ProductTexture
 from .brightness import BrightnessError, AmountKind, Brightness
 
 
@@ -261,7 +261,7 @@ class BrightnessProfile(ParametrizedTarget):
         params: Mapping[str, u.Quantity | Number] | None = None,
         anchor: str | None = None,
         extinction=None,
-        texture: LognormalTexture | None = None,
+        texture: LognormalTexture | ProductTexture | None = None,
     ) -> None:
         if position is not None:
             self.position = position

@@ -6,6 +6,11 @@ A texture multiplies the smooth (mean) profile of a
 reproducible, strictly positive random field of unit mean. The smooth profile
 keeps its meaning: its surface brightness is the *expected* level, and its
 analytic total stays the expected total.
+
+Textures compose by multiplication (``small * large``): the product of
+independent unit-mean fields again has unit mean, and the product of
+log-normal fields is log-normal, so structure on different ranges of scales
+can be described by separate, separately referenced factors.
 """
 from dataclasses import dataclass
 from functools import cached_property
@@ -123,6 +128,9 @@ class LognormalTexture:
         """``f`` on the periodic generation grid (unit mean, strictly positive)."""
         return np.exp(self.log_field)
 
+    def __mul__(self, other):
+        return ProductTexture(_factors(self) + _factors(other))
+
     # ---- sampling ---------------------------------------------------------
     def sample(self, x, y, pixel_size=None) -> np.ndarray:
         """Texture on the grid spanned by the 1D axes ``x`` (columns) and
@@ -146,3 +154,48 @@ class LognormalTexture:
                 jj, ii = np.meshgrid((ys + oy) / dx, (xs + ox) / dx, indexing="ij")
                 out += map_coordinates(self.field, [jj, ii], order=1, mode="grid-wrap")
         return out / k**2
+
+
+def _factors(texture) -> tuple:
+    if isinstance(texture, ProductTexture):
+        return texture.factors
+    if isinstance(texture, LognormalTexture):
+        return (texture,)
+    raise TypeError(f"cannot multiply a texture with {type(texture).__name__}")
+
+
+@dataclass(frozen=True)
+class ProductTexture:
+    """Product of independent textures, ``f = f_1 * f_2 * ...``.
+
+    Built with ``*`` (nested products are flattened). All factors must use the
+    same kind of scales (all lengths or all angles). Each factor is
+    pixel-averaged separately, so the product of the averages approximates the
+    average of the product; this is accurate when at most one factor varies
+    on the pixel scale.
+    """
+
+    factors: tuple
+
+    def __post_init__(self):
+        if len(self.factors) < 2:
+            raise ValueError("a product needs at least two textures")
+        if len({t.is_physical for t in self.factors}) > 1:
+            raise ValueError("cannot mix physical (length) and angular textures")
+
+    @property
+    def is_physical(self) -> bool:
+        return self.factors[0].is_physical
+
+    @property
+    def unit(self) -> u.Unit:
+        return self.factors[0].unit
+
+    def __mul__(self, other):
+        return ProductTexture(_factors(self) + _factors(other))
+
+    def sample(self, x, y, pixel_size=None) -> np.ndarray:
+        out = self.factors[0].sample(x, y, pixel_size=pixel_size)
+        for factor in self.factors[1:]:
+            out = out * factor.sample(x, y, pixel_size=pixel_size)
+        return out

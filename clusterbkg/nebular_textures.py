@@ -13,6 +13,14 @@ the texture's parameters:
   the observed maps, reproduces the measured PDF width. The smooth profile
   already contributes part of that width, so ``sigma`` depends on ``r_core``.
 
+Inside the bright nebula the ionized gas is uncorrelated on scales above
+22" [Arthur2016]; structure on larger scales is that of the molecular cloud,
+whose self-similar range is measured by [Kong2018]. A second, cloud-scale
+factor covers those scales. Its amplitude is not measured for nebular
+emission: it is an explicit, bounded choice (see :func:`max_sigma_large`).
+The same cloud texture describes emission arising at cloud surfaces
+(:func:`cloud_texture`, e.g. the fluorescent H2 of Ophiuchus).
+
 The angular scales are converted to lengths at the reference-scene distance,
 the same convention as ``ORION_R_REF``; the texture then scales with the scene.
 
@@ -64,9 +72,27 @@ ORION_BETA_INNER = 1 - ORION_GAMMA_T3
 # window, because of the adjacent steep tail.
 ORION_BETA = 3.53
 
+# ---- cloud-scale structure [Kong2018] ---------------------------------------------
+# Delta-variance of the integrated 13CO map of Orion A: an almost perfect power
+# law from 20" to 7' with slope 1.1, i.e. power-spectral index beta = 3.1;
+# self-similar up to 0.8 pc, shallower (a relative lack of structure) beyond
+# (Sect. 4.1.1).
+CLOUD_BETA = 3.1
+CLOUD_INNER_ANGLE = 20 * u.arcsec
+CLOUD_OUTER_ANGLE = 7 * u.arcmin
+# Below the beam-limited 20", cloud_texture continues the power law to the grid
+# resolution: dust emission keeps a single power law down to ~0.01 pc in the
+# Polaris flare [MivilleDeschenes2010].
+# Log-normal width of cloud column density, molecule-dominated regions (Sect. 8)
+# [Brunt2015]: a proxy only, since the surface-brightness amplitude of cloud
+# structure is not measured.
+CLOUD_SIGMA_PROXY = {"Orion A": 0.53, "Orion B": 0.71}
+
 # Numerical choices: seeds used for calibrations (statistics, not realizations)
-# and histogram bins of the PDF estimator.
-CALIBRATION_SEEDS = tuple(range(8))
+# and histogram bins of the PDF estimator. The sigma calibrations average 16
+# seeds (scatter between disjoint seed sets +/- 0.005, vs +/- 0.02 for 8).
+CALIBRATION_SEEDS = tuple(range(16))
+BETA_CALIBRATION_SEEDS = tuple(range(8))
 PDF_BINS = 40
 
 
@@ -85,7 +111,7 @@ def slit_slope(texture: LognormalTexture, k_lo, k_hi) -> float:
     return float(np.polyfit(np.log(k[m]), np.log(ps[m]), 1)[0])
 
 
-def calibrate_beta(seeds=CALIBRATION_SEEDS, n_grid: int = 1024) -> float:
+def calibrate_beta(seeds=BETA_CALIBRATION_SEEDS, n_grid: int = 1024) -> float:
     """2D slope whose 1D slit spectra reproduce ORION_GAMMA_T2 over the
     measured window (1/22" to 1/8"), given the measured small-scale tail."""
     k_lo = 1 / ORION_OUTER_ANGLE.to_value(u.arcsec)
@@ -145,29 +171,67 @@ def minimum_r_core(index: float = DEFAULT_INDEX, sigma_obs: float = ORION_SIGMA_
     return brentq(lambda r: profile_width(r * u.pc, index) - sigma_obs, 0.05, 1.0) * u.pc
 
 
-@lru_cache(maxsize=64)
-def _calibrate_sigma_cached(r_core_pc: float, index: float, sigma_obs: float, seeds: tuple) -> float:
+def _forward_width(r_core_pc, index, seeds, sigma_small, sigma_large):
+    """Mean PDF width of profile x texture over the observed field."""
     profile, xs, ys = _profile_on_field(r_core_pc * u.pc, index)
-    if pdf_core_width(profile) >= sigma_obs:
-        return 0.0
     x, y = _angle_to_length(xs * u.arcsec), _angle_to_length(ys * u.arcsec)
     pix = _angle_to_length(ORION_BIN)
+    widths = []
+    for s in seeds:
+        f = _small_texture(sigma_small, s, n_grid=256).sample(x, y, pixel_size=pix)
+        if sigma_large > 0:
+            f = f * _large_texture(sigma_large, _large_seed(s), n_grid=512).sample(x, y, pixel_size=pix)
+        widths.append(pdf_core_width(profile * f))
+    return float(np.mean(widths))
 
-    def forward(sigma):
-        return np.mean([pdf_core_width(profile * orion_texture(
-            r_core_pc * u.pc, s, index=index, sigma=sigma, n_grid=256).sample(x, y, pixel_size=pix))
-            for s in seeds])
 
-    return brentq(lambda sg: forward(sg) - sigma_obs, 0.0, 1.2, xtol=2e-3)
+@lru_cache(maxsize=64)
+def _max_sigma_large_cached(r_core_pc: float, index: float, sigma_obs: float, seeds: tuple) -> float:
+    if _forward_width(r_core_pc, index, seeds, 0.0, 0.0) >= sigma_obs:
+        return 0.0
+    return brentq(lambda sl: _forward_width(r_core_pc, index, seeds, 0.0, sl) - sigma_obs,
+                  0.0, 2.0, xtol=2e-3)
+
+
+def max_sigma_large(r_core: u.Quantity, index: float = DEFAULT_INDEX,
+                    sigma_obs: float = ORION_SIGMA_OBS, seeds=CALIBRATION_SEEDS) -> float:
+    """Upper limit on the cloud-scale amplitude from the measured PDF width
+    [Arthur2016]: at this value, profile x cloud-scale structure alone already
+    reproduces it, leaving no room for the small-scale gas texture."""
+    return _max_sigma_large_cached(float(r_core.to_value(u.pc)), float(index),
+                                   float(sigma_obs), tuple(seeds))
+
+
+@lru_cache(maxsize=64)
+def _calibrate_sigma_cached(r_core_pc: float, index: float, sigma_obs: float, seeds: tuple,
+                            sigma_large: float) -> float:
+    if _forward_width(r_core_pc, index, seeds, 0.0, sigma_large) >= sigma_obs:
+        return 0.0
+    return brentq(lambda sg: _forward_width(r_core_pc, index, seeds, sg, sigma_large) - sigma_obs,
+                  0.0, 1.2, xtol=2e-3)
 
 
 def calibrate_sigma(r_core: u.Quantity, index: float = DEFAULT_INDEX,
-                    sigma_obs: float = ORION_SIGMA_OBS, seeds=CALIBRATION_SEEDS) -> float:
-    """Texture ``sigma`` for which profile x texture, analysed like the observed
-    maps, reproduces ``sigma_obs``. Zero (with a warning) if the smooth profile
-    alone is already wider, i.e. for cores below :func:`minimum_r_core`."""
+                    sigma_obs: float = ORION_SIGMA_OBS, seeds=CALIBRATION_SEEDS,
+                    sigma_large: float = 0.0) -> float:
+    """``sigma`` of the ionized-gas texture for which profile x texture (x the
+    cloud-scale factor of amplitude ``sigma_large``), analysed like the
+    observed maps, reproduces ``sigma_obs``. Zero (with a warning) if the
+    profile, with the cloud-scale factor, is already wider, e.g. for cores
+    below :func:`minimum_r_core`."""
+    if sigma_large > 0:
+        bound = max_sigma_large(r_core, index, sigma_obs, seeds)
+        if sigma_large > bound + 2e-3:
+            raise ValueError(
+                f"sigma_large = {sigma_large:.3f} exceeds the limit {bound:.3f} set by the "
+                f"measured PDF width [Arthur2016] for r_core = {r_core:.3g}")
     sigma = _calibrate_sigma_cached(float(r_core.to_value(u.pc)), float(index),
-                                    float(sigma_obs), tuple(seeds))
+                                    float(sigma_obs), tuple(seeds), float(sigma_large))
+    if sigma == 0.0 and sigma_large > 0:
+        warnings.warn(
+            f"sigma_large = {sigma_large:.3f} uses up the measured PDF width "
+            f"[Arthur2016]; no small-scale gas texture added.", stacklevel=2)
+        return sigma
     if sigma == 0.0:
         warnings.warn(
             f"the smooth profile with r_core = {r_core:.3g} is already more structured "
@@ -177,19 +241,62 @@ def calibrate_sigma(r_core: u.Quantity, index: float = DEFAULT_INDEX,
     return sigma
 
 
-def orion_texture(r_core: u.Quantity, rng_seed: int, *, index: float = DEFAULT_INDEX,
-                  sigma: float | None = None, n_grid: int = 2048) -> LognormalTexture:
-    """Orion-Nebula-like texture for a background with nebular core ``r_core``.
+def _large_seed(rng_seed: int) -> int:
+    """Seed of the cloud-scale factor, derived from the texture's seed."""
+    return int(np.random.SeedSequence([int(rng_seed), 1]).generate_state(1)[0])
 
-    ``sigma`` defaults to :func:`calibrate_sigma` for this core and index (it
-    does not depend on the seed or on the scene distance). The same texture
-    can be passed to :func:`~.nebular_backgrounds.ophiuchus_background` for a
-    controlled comparison; no Ophiuchus-specific statistics exist.
-    """
-    if sigma is None:
-        sigma = calibrate_sigma(r_core, index)
+
+def _small_texture(sigma: float, rng_seed: int, n_grid: int = 2048) -> LognormalTexture:
+    """Ionized-gas factor [Arthur2016]: flat above 22", calibrated beta
+    between 22" and 8", measured steep tail below."""
     return LognormalTexture(
         sigma=sigma, beta=ORION_BETA, beta_inner=ORION_BETA_INNER,
         outer_scale=_angle_to_length(ORION_OUTER_ANGLE),
         inner_scale=_angle_to_length(ORION_INNER_ANGLE),
         rng_seed=rng_seed, n_grid=n_grid)
+
+
+def _large_texture(sigma_large: float, rng_seed: int, n_grid: int = 2048) -> LognormalTexture:
+    """Cloud-scale factor on the ionized gas: the [Kong2018] slope between the
+    cloud outer scale and the [Arthur2016] outer scale. Below the latter it
+    hands over to the small-scale factor, falling with the measured regime-III
+    slope (a modelling choice that keeps it out of the measured small scales)."""
+    return LognormalTexture(
+        sigma=sigma_large, beta=CLOUD_BETA, beta_inner=ORION_BETA_INNER,
+        outer_scale=_angle_to_length(CLOUD_OUTER_ANGLE),
+        inner_scale=_angle_to_length(ORION_OUTER_ANGLE),
+        rng_seed=rng_seed, n_grid=n_grid)
+
+
+def cloud_texture(sigma: float, rng_seed: int, *, n_grid: int = 2048) -> LognormalTexture:
+    """Cloud-structure texture [Kong2018] for emission arising at cloud
+    surfaces, e.g. the fluorescent H2 of Ophiuchus or PDR PAH emission.
+
+    ``sigma`` is explicit: no surface-brightness amplitude is measured;
+    ``CLOUD_SIGMA_PROXY`` lists column-density widths as a guide.
+    """
+    return LognormalTexture(
+        sigma=sigma, beta=CLOUD_BETA, beta_inner=CLOUD_BETA,
+        outer_scale=_angle_to_length(CLOUD_OUTER_ANGLE),
+        inner_scale=_angle_to_length(CLOUD_INNER_ANGLE),
+        rng_seed=rng_seed, n_grid=n_grid)
+
+
+def orion_texture(r_core: u.Quantity, rng_seed: int, *, index: float = DEFAULT_INDEX,
+                  sigma: float | None = None, sigma_large: float | None = None,
+                  n_grid: int = 2048):
+    """Orion-Nebula-like texture for a background with nebular core ``r_core``.
+
+    Without ``sigma_large`` this is the ionized-gas texture alone. With it,
+    the result is the product of that texture and a cloud-scale factor of
+    amplitude ``sigma_large``, which must not exceed :func:`max_sigma_large`.
+    ``sigma`` (of the gas factor) defaults to :func:`calibrate_sigma`, jointly
+    with ``sigma_large``; it depends on neither the seed nor the distance.
+    """
+    sigma_large = float(sigma_large or 0.0)
+    if sigma is None:
+        sigma = calibrate_sigma(r_core, index, sigma_large=sigma_large)
+    small = _small_texture(sigma, rng_seed, n_grid)
+    if sigma_large == 0.0:
+        return small
+    return small * _large_texture(sigma_large, _large_seed(rng_seed), n_grid)

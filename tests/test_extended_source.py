@@ -718,6 +718,15 @@ class TestTexture:
         prof = CoredPowerLaw(params=self.PARAMS, texture=tex)
         assert prof._render_texture(grid).shape == (64, 64)
 
+    def test_product_texture_renders_as_product(self, grid):
+        small, large = _texture(), _texture(sigma=0.3, outer_scale=0.4 * u.pc, rng_seed=4, n_grid=512)
+        pos = _sky(414 * u.pc)
+        a = CoredPowerLaw(params=self.PARAMS, texture=small, position=pos)
+        b = CoredPowerLaw(params=self.PARAMS, texture=large, position=pos)
+        ab = CoredPowerLaw(params=self.PARAMS, texture=small * large, position=pos)
+        npt.assert_allclose(ab._render_texture(grid), a._render_texture(grid) * b._render_texture(grid), rtol=1e-12)
+        assert ab._effective_area(grid) == a._effective_area(grid)  # expected total unchanged
+
     def test_same_nebula_at_every_distance(self):
         # Same physical pixel positions at 414 pc / 1"/px and 828 pc / 0.5"/px:
         # the texture must be identical (it lives in pc, not in pixels).

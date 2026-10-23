@@ -90,6 +90,16 @@ def md_table(df):
     body = ["| " + " | ".join(str(v) for v in row) + " |" for row in df.itertuples(index=False)]
     return Markdown("\n".join([head, rule, *body]))
 
+def slit_slope_sampled(texture, k_lo, k_hi, n=1024):
+    """1D slit slope of ln f for any (composite) texture, sampled on a patch [pc]."""
+    dx = nt._angle_to_length(nt.ORION_INNER_ANGLE) / 4
+    x = np.arange(n) * dx
+    lf = np.log(texture.sample(x, x))
+    ps = np.mean(np.abs(np.fft.rfft(lf, axis=1)) ** 2, axis=0)
+    k = np.fft.rfftfreq(n, dx.to_value(u.pc))
+    m = (k >= k_lo) & (k <= k_hi)
+    return np.polyfit(np.log(k[m]), np.log(ps[m]), 1)[0]
+
 def sb_image(background, grid, m_ref):
     """Rendered surface brightness [mag/arcsec2] of a background on a grid,
     given the magnitude ``m_ref`` that its brightness sets at r_ref."""
@@ -328,8 +338,9 @@ A single realization's weightmap sum scatters slightly around the visible fracti
 The field is generated once in parsecs, so the same seed gives the same nebula at every distance.
 
 ### Measured statistics
-All texture parameters come from the surface-brightness analysis of the inner Orion Nebula by {cite:t}`Arthur2016`.
+The ionized-gas parameters come from the surface-brightness analysis of the inner Orion Nebula by {cite:t}`Arthur2016`.
 Two of them are not used as published but forward-calibrated, because the published estimators are not the texture's parameters.
+The cloud-scale parameters, used in {ref}`sec:bkg-cloud`, come from the structure of the Orion A cloud {cite:p}`Kong2018`.
 
 ```{code-cell} ipython3
 ---
@@ -338,6 +349,7 @@ mystnb:
   markdown_format: myst
 ---
 src = "{cite:p}`Arthur2016`"
+kong, brunt, mivi = "{cite:p}`Kong2018`", "{cite:p}`Brunt2015`", "{cite:p}`MivilleDeschenes2010`"
 pc = lambda a: f"{(a.to_value(u.rad) * nt.SCENE_DISTANCE).to_value(u.pc):.4f} pc"
 md_table(pd.DataFrame([
     ("outer scale", f"{nt.ORION_OUTER_ANGLE:.0f} = {pc(nt.ORION_OUTER_ANGLE)}", f"{src}, Sect. 3.1, 4.4", "`outer_scale`"),
@@ -348,6 +360,12 @@ md_table(pd.DataFrame([
     ("map binning", f"16 × 0.54″ = {nt.ORION_BIN:.2f}", f"{src}, Sect. 4.3, Fig. 8", "PDF estimator"),
     ("PDF fit", f"log-normal core, density > {nt.PDF_CORE_FRACTION} × max", f"{src}, Sect. 4.3, Fig. 15", "PDF estimator"),
     ("field and θ¹ Ori C", "J2000 boundaries and position", f"{src}, footnote 1", "PDF estimator"),
+    ("cloud power-spectral index", f"{nt.CLOUD_BETA}", f"{kong}, Sect. 4.1.1", "`beta` of the cloud-scale factor"),
+    ("cloud self-similar range", f"{nt.CLOUD_INNER_ANGLE:.0f}–{nt.CLOUD_OUTER_ANGLE:.0f} = {pc(nt.CLOUD_INNER_ANGLE)}–{pc(nt.CLOUD_OUTER_ANGLE)}",
+     f"{kong}, Sect. 4.1.1", "cloud-scale factor scales"),
+    ("power law below the beam", "single power law down to ~0.01 pc (Polaris flare)", mivi, "continuation in `cloud_texture`"),
+    ("cloud column-density width", ", ".join(f"{v} ({k})" for k, v in nt.CLOUD_SIGMA_PROXY.items()),
+     f"{brunt}, Sect. 8", "amplitude proxy only"),
 ], columns=["quantity", "value", "source", "used as"]))
 ```
 
@@ -443,18 +461,85 @@ The measured width requires a nebular core of at least {glue:text}`tex_rmin:.2f`
 For textured Orion-like runs, pass a nebular `r_core` above this limit; `r_tide` can stay matched to the cluster.
 ```
 
+(sec:bkg-cloud)=
+### Cloud-scale structure
+Inside the bright nebula, the ionized gas is uncorrelated on scales above 22″ {cite:p}`Arthur2016`.
+On larger scales, the structure is that of the molecular cloud: in Orion A, the ¹³CO emission is self-similar from 20″ to 7′, with a power-spectral index of {glue:text}`tex_cloud_beta:.1f` {cite:p}`Kong2018`.
+Without that, a texture made of gas statistics alone looks increasingly granular as more of it fits into the field, i.e. at larger distances.
+A second, independent factor adds the cloud scales:
+
+```{math}
+:label: bkg-texture-product
+
+f \;=\; f_\mathrm{gas}\; f_\mathrm{cloud} .
+```
+
+The cloud factor follows the cloud spectrum between 7′ and 22″.
+Below 22″ it hands over to the gas factor, falling with the measured steep slope of the gas; that hand-over is a modelling choice.
+
+Its surface-brightness amplitude {math}`\sigma_\mathrm{large}` is not measured, but the inner nebula *bounds* it.
+Over the field of {cite:t}`Arthur2016`, profile × cloud factor alone must not exceed the measured PDF width; at the bound, no room remains for the gas factor.
+Below the bound, {math}`\sigma_\mathrm{large}` is a choice, and the gas factor is calibrated jointly with it:
+
+```{code-cell} ipython3
+:tags: [hide-input]
+
+rows = {}
+for r in (0.25 * u.pc, 0.3 * u.pc, 0.5 * u.pc):
+    bound = nt.max_sigma_large(r)
+    half = round(bound / 2, 3)
+    rows[f"{r:.2f}"] = {"max σ_large": bound, "σ_large (half the bound)": half,
+                        "σ_gas, joint": nt.calibrate_sigma(r, sigma_large=half),
+                        "σ_gas, alone": nt.calibrate_sigma(r)}
+bounds = pd.DataFrame(rows).T.rename_axis("nebular r_core")
+glue("tex_cloud_beta", float(nt.CLOUD_BETA), display=False)
+glue("tex_bound_03", float(bounds.loc["0.30 pc", "max σ_large"]), display=False)
+glue("tex_brunt_a", float(nt.CLOUD_SIGMA_PROXY["Orion A"]), display=False)
+bounds.style.format("{:.3f}").set_table_attributes("class='dataframe'").set_table_styles(tbl_sty)
+```
+
+The cloud factor does not disturb the measured small scales.
+Even at the bound, the 1D slope between 8″ and 22″ stays as measured:
+
+```{code-cell} ipython3
+k_lo = 1 / nt._angle_to_length(nt.ORION_OUTER_ANGLE).to_value(u.pc)
+k_hi = 1 / nt._angle_to_length(nt.ORION_INNER_ANGLE).to_value(u.pc)
+at_bound = nt.max_sigma_large(0.3 * u.pc)
+slopes = [slit_slope_sampled(nt.orion_texture(0.3 * u.pc, s, sigma=0.5, sigma_large=at_bound), k_lo, k_hi)
+          for s in range(3)]
+assert abs(np.mean(slopes) - nt.ORION_GAMMA_T2) < nt.ORION_GAMMA_T2_ERR
+glue("tex_slope_composite", float(np.mean(slopes)), display=False)
+```
+
+With the cloud factor at the bound, the slope is {glue:text}`tex_slope_composite:.2f`, against the published −2.79 ± 0.15.
+
+```{admonition} The cloud amplitude is a choice
+:class: warning
+
+{math}`\sigma_\mathrm{large}` is the one texture parameter without a measurement.
+The column-density width of the Orion A cloud, {glue:text}`tex_brunt_a:.2f` {cite:p}`Brunt2015`, exceeds the bound for a 0.3 pc core ({glue:text}`tex_bound_03:.2f`).
+So cloud contrast does not translate one-to-one into nebular surface brightness, at least in the core, and that proxy cannot be used directly.
+`orion_texture` therefore takes `sigma_large` explicitly and rejects values above the bound.
+```
+
 ### Textured backgrounds
 {numref}`fig:bkg-texture-distance` repeats {numref}`fig:bkg-distance` with a texture, for a nebular core above the limit.
+The top row uses the gas texture alone, the bottom row adds the cloud factor at half its bound (an illustrative choice).
 The same seed gives the same nebula at every distance; only its angular size changes.
 
 ```{code-cell} ipython3
 NEB_R_CORE = 0.3 * u.pc
+SIGMA_LARGE = round(nt.max_sigma_large(NEB_R_CORE) / 2, 3)  # illustrative: half the bound
 texture = nt.orion_texture(NEB_R_CORE, rng_seed=1138)
+texture_cloud = nt.orion_texture(NEB_R_CORE, rng_seed=1138, sigma_large=SIGMA_LARGE)
 textured = {d: nb.orion_background(position(d), NEB_R_CORE, KING["r_tide"], texture=texture) for d in distances}
+layered = {d: nb.orion_background(position(d), NEB_R_CORE, KING["r_tide"], texture=texture_cloud) for d in distances}
 smooth = {d: nb.orion_background(position(d), NEB_R_CORE, KING["r_tide"]) for d in distances}
 for d in distances:  # the texture changes the structure, not the expected total
-    assert textured[d].total_flux_factor() == smooth[d].total_flux_factor()
+    assert textured[d].total_flux_factor() == layered[d].total_flux_factor() == smooth[d].total_flux_factor()
 glue("tex_sigma_demo", float(texture.sigma), display=False)
+glue("tex_sigma_gas_joint", float(texture_cloud.factors[0].sigma), display=False)
+glue("tex_sigma_large_demo", float(SIGMA_LARGE), display=False)
 glue("tex_rcore_demo", float(NEB_R_CORE.to_value(u.pc)), display=False)
 ```
 
@@ -465,28 +550,101 @@ mystnb:
   figure:
     name: fig:bkg-texture-distance
     caption: The textured Orion background (nebular core 0.3 pc, one seed) in a 2′ field at
-      three distances, as surface brightness.
+      three distances, as surface brightness. Top, ionized-gas texture alone; bottom, with
+      the cloud-scale factor at half its bound.
 ---
 m_ref = level_mag(nb.ORION_BRIGHTNESS)
-fig, axes = plt.subplots(1, 3, figsize=(11, 3.9), layout="compressed", sharey=True)
-for ax, d in zip(axes, distances):
-    im = ax.imshow(sb_image(textured[d], grid, m_ref), origin="lower", extent=extent_arcsec(grid),
-                   cmap="magma_r", vmin=m_ref - 2, vmax=m_ref + 5)
-    ax.set_title(f"d = {d.to(u.kpc):.3g}", fontsize=9); ax.set_xlabel("x [arcsec]"); ax.grid(False)
-axes[0].set_ylabel("y [arcsec]")
+fig, axes = plt.subplots(2, 3, figsize=(11, 7.4), layout="compressed", sharex=True, sharey=True)
+for row, (label, models) in zip(axes, (("gas", textured), ("gas × cloud", layered))):
+    for ax, d in zip(row, distances):
+        im = ax.imshow(sb_image(models[d], grid, m_ref), origin="lower", extent=extent_arcsec(grid),
+                       cmap="magma_r", vmin=m_ref - 2, vmax=m_ref + 5)
+        ax.set_title(f"{label}, d = {d.to(u.kpc):.3g}", fontsize=9); ax.grid(False)
+    row[0].set_ylabel("y [arcsec]")
+for ax in axes[1]:
+    ax.set_xlabel("x [arcsec]")
 fig.colorbar(im, ax=axes, label="Ks surface brightness [mag/arcsec²]")
 plt.show()
 ```
 
-With a nebular core of {glue:text}`tex_rcore_demo:.1f` pc, the calibrated texture has {math}`\sigma` = {glue:text}`tex_sigma_demo:.2f`.
+With a nebular core of {glue:text}`tex_rcore_demo:.1f` pc, the calibrated gas texture alone has {math}`\sigma` = {glue:text}`tex_sigma_demo:.2f`.
+With the cloud factor at {math}`\sigma_\mathrm{large}` = {glue:text}`tex_sigma_large_demo:.2f`, the jointly calibrated gas factor has {math}`\sigma` = {glue:text}`tex_sigma_gas_joint:.2f`.
 
-```{admonition} The Ophiuchus texture is borrowed too
+```{admonition} Ophiuchus: cloud structure, not gas statistics
 :class: note
 
-No surface-brightness fluctuation statistics exist for the diffuse near-infrared emission of L1688.
-For a controlled comparison, pass the Orion texture to `ophiuchus_background` as well.
-Herschel maps show the Ophiuchus cloud to be dominated by filaments about 0.1 pc wide {cite:p}`Ladjelate2020,Yin2025`,
-so its characteristic scale is likely larger than Orion's outer scale.
+The Ophiuchus background is fluorescent H₂ at cloud surfaces, not ionized gas.
+Its natural texture is therefore `cloud_texture`, with the cloud spectrum of {cite:t}`Kong2018` and the power law continued below the beam {cite:p}`MivilleDeschenes2010`.
+That fits the filaments about 0.1 pc wide that dominate the Herschel maps of the Ophiuchus cloud {cite:p}`Ladjelate2020,Yin2025`.
+No surface-brightness amplitude is measured, so `sigma` is explicit; the column-density widths of {cite:t}`Brunt2015` can serve as a rough guide.
+```
+
+(sec:bkg-layers)=
+### Two layers: ionized gas and PDR
+Orion's PAH emission comes from the face-on PDR behind the nebula {cite:p}`Chown2024`, i.e. from the cloud, not the ionized gas.
+`orion_layers` therefore builds the Orion background as two targets with the same geometry:
+
+* **the gas layer** (H I, He I, nebular continuum), with the ionized-gas texture;
+* **the PAH layer**, with a cloud texture.
+
+Together they carry the full `FLUX` of the spectrum.
+PAH contributes only {glue:text}`lay_pah_k:.2f` % of the Ks flux, so in J, H and K the layers are equivalent to `orion_background`; the split matters in L and M.
+
+```{code-cell} ipython3
+:tags: [hide-input]
+
+import importlib.util
+from astropy.io.votable import parse_single_table
+from astropy.table import QTable
+
+sed_tab = QTable.read(nb.SED_DIR / nb.ORION_SED, hdu="SPECTRUM")
+lam = sed_tab["WAVELENGTH"].value
+svo = Path(importlib.util.find_spec("spextra").origin).parent / "data" / "svo"
+rsr = parse_single_table(str(svo / "2MASS/2MASS.Ks")).to_table()
+t_ks = np.interp(lam, np.asarray(rsr["Wavelength"], float), np.asarray(rsr["Transmission"], float), left=0, right=0)
+pah_share = np.trapezoid(sed_tab["PAH"].value * lam * t_ks, lam) / np.trapezoid(sed_tab["FLUX"].value * lam * t_ks, lam)
+glue("lay_pah_k", float(100 * pah_share), display=False)
+
+pah_level = nb.sed_level(nb.ORION_SED, nb.PAH_COMPONENTS, nb.ORION_PAH_WAVELENGTH)
+pd.DataFrame({
+    "components": [", ".join(nb.GAS_COMPONENTS), ", ".join(nb.PAH_COMPONENTS)],
+    "brightness at r_ref": [" ".join(nb.ORION_BRIGHTNESS), " → ".join(pah_level)],
+    "anchor type": ["band (2MASS Ks level of the spectrum)", "wavelength locator (the spectrum's own value)"],
+}, index=["gas layer", "PAH layer"]).style.set_table_attributes("class='dataframe'").set_table_styles(tbl_sty)
+```
+
+The PAH layer is anchored with a wavelength locator at the centre of the 3.29 µm band {cite:p}`Peeters2024`, with the value read from the spectrum itself.
+A band anchor would depend on the passband, which matters for narrow features like the PAH bands.
+The locator reproduces the spectrum's level exactly, so the layer is not rescaled at all.
+
+```{code-cell} ipython3
+SIGMA_PAH = SIGMA_LARGE  # illustrative: the same cloud amplitude as above
+gas_layer, pah_layer = nb.orion_layers(
+    position(distances[-1]), NEB_R_CORE, KING["r_tide"],
+    gas_texture=texture_cloud, pah_texture=nt.cloud_texture(SIGMA_PAH, rng_seed=1138))
+```
+
+```{code-cell} ipython3
+---
+tags: [hide-input]
+mystnb:
+  figure:
+    name: fig:bkg-layers
+    caption: The two Orion layers at 4.14 kpc, relative to their level at r_ref. The gas
+      layer carries the ionized-gas texture with the cloud factor, the PAH layer a pure
+      cloud texture (illustrative amplitude).
+---
+omega = (grid["pixel_scale"] * u.pix).to_value(u.arcsec) ** 2
+fig, axes = plt.subplots(1, 2, figsize=(8.6, 3.9), layout="compressed", sharey=True)
+for ax, (label, layer) in zip(axes, (("gas layer", gas_layer), ("PAH layer", pah_layer))):
+    rel = layer.to_source(grid).fields[0].data * layer.total_flux_factor().to_value(u.arcsec**2) / omega
+    with np.errstate(divide="ignore"):
+        im = ax.imshow(-2.5 * np.log10(np.where(rel > 0, rel, np.nan)), origin="lower",
+                       extent=extent_arcsec(grid), cmap="magma_r", vmin=-2, vmax=5)
+    ax.set_title(label, fontsize=9); ax.set_xlabel("x [arcsec]"); ax.grid(False)
+axes[0].set_ylabel("y [arcsec]")
+fig.colorbar(im, ax=axes, label="Δ surface brightness vs. r_ref [mag]")
+plt.show()
 ```
 
 ## Using the backgrounds in a scene
@@ -500,9 +658,18 @@ cluster = ZeroAgeCluster(pos, IMFPopulation, {"n_stars": 1000},
                          KingProfileMorphology, king, rng_seed=1138)
 background = nb.orion_background(pos, king["r_core"], king["r_tide"])
 
-# textured, with a nebular core above the limit of the texture calibration
-texture = nt.orion_texture(0.3 * u.pc, rng_seed=1138)
+# textured, with a nebular core above the limit of the texture calibration,
+# optionally with cloud-scale structure (sigma_large: a bounded choice; 0.2 is illustrative)
+texture = nt.orion_texture(0.3 * u.pc, rng_seed=1138, sigma_large=0.2)
 background = nb.orion_background(pos, 0.3 * u.pc, king["r_tide"], texture=texture)
+
+# Orion as two layers (for L/M): gas with the gas texture, PAH with a cloud texture (0.2 illustrative)
+gas, pah = nb.orion_layers(pos, 0.3 * u.pc, king["r_tide"], gas_texture=texture,
+                           pah_texture=nt.cloud_texture(0.2, rng_seed=1138))
+
+# Ophiuchus: emission from cloud surfaces, so a cloud texture (sigma unmeasured; 0.4 is illustrative)
+oph = nb.ophiuchus_background(pos, king["r_core"], king["r_tide"],
+                              texture=nt.cloud_texture(0.4, rng_seed=1138))
 ```
 
 Two constraints and one current limitation apply:

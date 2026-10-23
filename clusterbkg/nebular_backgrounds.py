@@ -16,8 +16,10 @@ effect of the background itself.
 * Surface brightness is distance-invariant: only the angular size changes with
   distance, never the brightness per arcsec2.
 * Optional ``texture``: multiplicative random structure on top of the smooth
-  profile, e.g. :func:`.nebular_textures.orion_texture`. Its scales are lengths
-  too, so the same seed gives the same nebula at every distance.
+  profile, e.g. :func:`.nebular_textures.orion_texture` (ionized gas, with an
+  optional cloud-scale factor) or :func:`.nebular_textures.cloud_texture`
+  (emission from cloud surfaces). Its scales are lengths too, so the same seed
+  gives the same nebula at every distance.
 
 Example (reference scene: King r_core = 0.13 pc, r_tide = 2.0 pc, 414 pc)::
 
@@ -30,8 +32,10 @@ Example (reference scene: King r_core = 0.13 pc, r_tide = 2.0 pc, 414 pc)::
 
 References: see references.bib next to this file (keys in brackets).
 """
+from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import QTable
@@ -72,6 +76,19 @@ ORION_ANCHOR = "intrinsic"
 OPHIUCHUS_BRIGHTNESS = ("K", "19.06 mag / arcsec2")
 OPHIUCHUS_ANCHOR = "observed"
 
+# ---- Orion as two layers: ionized gas and PDR -----------------------------------
+# The PAH emission comes from the face-on PDR behind the ionized gas
+# [Chown2024], i.e. from the cloud, and gets cloud structure; the gas keeps
+# the ionized-gas statistics. Both layers share the geometry.
+GAS_COMPONENTS = ("H_LINES", "HE_LINES", "NEB_CONT")
+PAH_COMPONENTS = ("PAH",)
+# The gas layer keeps ORION_BRIGHTNESS: PAH contributes 0.17% of the 2MASS Ks
+# flux, so the gas-only level differs by 0.002 mag (below the rounding of the
+# constant). The PAH layer is anchored with a wavelength locator at the centre
+# of the 3.29 um band [Peeters2024, Table H.1]: unlike a band anchor, it does
+# not depend on a passband, so it reproduces the SED's own level exactly.
+ORION_PAH_WAVELENGTH = 3.291 * u.um
+
 
 def _require_length(name: str, value) -> None:
     if not (
@@ -106,6 +123,26 @@ def load_sed(filename: str, components=None, sed_dir: Path | None = None):
         lookup_table=flam,
         keep_neg=False,
     )
+
+
+@lru_cache(maxsize=16)
+def _sed_level_cached(filename, components, wavelength_nm, sed_dir):
+    tab = QTable.read(Path(sed_dir) / filename, hdu="SPECTRUM")
+    sb = sum(tab[c] for c in components)
+    value = np.interp(wavelength_nm * 10.0, tab["WAVELENGTH"].to_value(u.AA), sb.value) * sb.unit
+    return value.to_value(u.erg / (u.s * u.cm**2 * u.nm * u.arcsec**2))
+
+
+def sed_level(filename: str, components, wavelength: u.Quantity, sed_dir: Path | None = None):
+    """Brightness definition (wavelength locator) that reproduces the SED's
+    own surface brightness of ``components`` at ``wavelength``.
+
+    Linear interpolation, as synphot's ``Empirical1D`` does, so the anchored
+    spectrum is not rescaled at all: the layer keeps the SED's absolute level.
+    """
+    wl_nm = float(wavelength.to_value(u.nm))
+    value = _sed_level_cached(filename, tuple(components), wl_nm, str(sed_dir or SED_DIR))
+    return (f"{wl_nm:.1f} nm", f"{value:.6e} erg / (s cm2 nm arcsec2)")
 
 
 def nebular_background(
@@ -193,8 +230,10 @@ def ophiuchus_background(
     comparison: no radial law has been measured for the diffuse emission of
     L1688, so the shape is the Orion one and only the spectrum and the level
     (``OPHIUCHUS_BRIGHTNESS`` at ``r_ref``) are Ophiuchus-specific. Use
-    ``index=0`` for a uniform disk out to ``r_tide`` instead. A ``texture``
-    is likewise borrowed from Orion (no Ophiuchus-specific statistics exist).
+    ``index=0`` for a uniform disk out to ``r_tide`` instead. The emission
+    arises at cloud surfaces, so the natural ``texture`` is
+    :func:`.nebular_textures.cloud_texture` (cloud structure, not the
+    ionized-gas statistics of Orion); its amplitude is not measured.
     """
     return nebular_background(
         position,
@@ -207,3 +246,34 @@ def ophiuchus_background(
         r_ref=r_ref,
         texture=texture,
     )
+
+
+def orion_layers(
+    position: SkyCoord,
+    r_core: u.Quantity,
+    r_tide: u.Quantity,
+    *,
+    index: float = DEFAULT_INDEX,
+    r_ref: u.Quantity = ORION_R_REF,
+    extinction=None,
+    gas_texture=None,
+    pah_texture=None,
+) -> tuple[CoredPowerLaw, CoredPowerLaw]:
+    """Orion background as two layers with the same geometry: ionized gas
+    (H I, He I, nebular continuum) and PDR PAH emission.
+
+    Together they carry the full ``FLUX`` of the Orion SED; in J/H/K they are
+    equivalent to :func:`orion_background`, the PAH layer only matters in L/M.
+    Give the gas an ionized-gas texture (:func:`.nebular_textures.orion_texture`)
+    and the PAH layer a cloud texture (:func:`.nebular_textures.cloud_texture`).
+    Returns ``(gas, pah)``.
+    """
+    common = dict(index=index, r_ref=r_ref, extinction=extinction)
+    gas = nebular_background(
+        position, load_sed(ORION_SED, GAS_COMPONENTS), ORION_BRIGHTNESS,
+        ORION_ANCHOR, r_core, r_tide, texture=gas_texture, **common)
+    pah = nebular_background(
+        position, load_sed(ORION_SED, PAH_COMPONENTS),
+        sed_level(ORION_SED, PAH_COMPONENTS, ORION_PAH_WAVELENGTH),
+        ORION_ANCHOR, r_core, r_tide, texture=pah_texture, **common)
+    return gas, pah
