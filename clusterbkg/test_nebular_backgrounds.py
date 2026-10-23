@@ -28,7 +28,8 @@ def _arcsec(length, distance):
 @pytest.fixture(autouse=True)
 def no_sed(monkeypatch):
     """Keep the pure tier offline: the SED is irrelevant to the geometry."""
-    monkeypatch.setattr(nb, "load_sed", lambda filename, components=None: filename)
+    monkeypatch.setattr(nb, "load_sed", lambda filename, components=None:
+                        filename if components is None else (filename, tuple(components)))
 
 
 @pytest.mark.parametrize("factory", [nb.orion_background, nb.ophiuchus_background])
@@ -95,6 +96,50 @@ class TestOrionVsOphiuchus:
         assert ori.brightness != oph.brightness
         assert (ori.anchor, oph.anchor) == ("intrinsic", "observed")
         assert (ori.spectrum, oph.spectrum) == (nb.ORION_SED, nb.OPHIUCHUS_SED)
+
+
+class TestOrionLayers:
+    def test_two_layers_same_geometry(self):
+        gas, pah = nb.orion_layers(_pos(414 * u.pc), **KING)
+        npt.assert_array_equal(gas._weightmap(GRID)[0], pah._weightmap(GRID)[0])
+        assert gas.spectrum == (nb.ORION_SED, nb.GAS_COMPONENTS)
+        assert pah.spectrum == (nb.ORION_SED, nb.PAH_COMPONENTS)
+        assert gas.anchor == pah.anchor == nb.ORION_ANCHOR
+
+    def test_layers_partition_the_full_flux(self):
+        from astropy.table import QTable
+        tab = QTable.read(nb.SED_DIR / nb.ORION_SED, hdu="SPECTRUM")
+        comps = set(tab.meta["FLUXDEF"].split("=", 1)[1].replace("+", " ").split())
+        assert comps == set(nb.GAS_COMPONENTS) | set(nb.PAH_COMPONENTS)
+        assert not set(nb.GAS_COMPONENTS) & set(nb.PAH_COMPONENTS)
+
+    def test_pah_anchor_reproduces_sed_level(self):
+        from astropy.table import QTable
+        tab = QTable.read(nb.SED_DIR / nb.ORION_SED, hdu="SPECTRUM")
+        locator, amount = nb.sed_level(nb.ORION_SED, nb.PAH_COMPONENTS, nb.ORION_PAH_WAVELENGTH)
+        assert locator == "3291.0 nm"
+        expected = np.interp(32910.0, tab["WAVELENGTH"].value, tab["PAH"].value) * tab["PAH"].unit
+        npt.assert_allclose(u.Quantity(amount).to_value(expected.unit), expected.value, rtol=1e-6)
+
+    def test_pah_negligible_in_k(self):
+        # Justifies keeping ORION_BRIGHTNESS for the gas-only layer.
+        import importlib.util
+        from pathlib import Path
+        from astropy.io.votable import parse_single_table
+        from astropy.table import QTable
+        tab = QTable.read(nb.SED_DIR / nb.ORION_SED, hdu="SPECTRUM")
+        lam = tab["WAVELENGTH"].value
+        svo = Path(importlib.util.find_spec("spextra").origin).parent / "data" / "svo"
+        rsr = parse_single_table(str(svo / "2MASS/2MASS.Ks")).to_table()
+        t = np.interp(lam, np.asarray(rsr["Wavelength"], float), np.asarray(rsr["Transmission"], float), left=0, right=0)
+        share = np.trapezoid(tab["PAH"].value * lam * t, lam) / np.trapezoid(tab["FLUX"].value * lam * t, lam)
+        assert -2.5 * np.log10(1 - share) < 0.005  # below the rounding of ORION_BRIGHTNESS
+
+    def test_layer_textures_pass_through(self):
+        gas_tex = nt.orion_texture(0.3 * u.pc, 0, sigma=0.5, n_grid=256)
+        pah_tex = nt.cloud_texture(0.4, 0, n_grid=512)
+        gas, pah = nb.orion_layers(_pos(414 * u.pc), **KING, gas_texture=gas_tex, pah_texture=pah_tex)
+        assert gas.texture is gas_tex and pah.texture is pah_tex
 
 
 @pytest.mark.webtest
